@@ -78,6 +78,7 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
+    <ClCompile Include="InterServer\StreamingServer.cpp" />
     <ClCompile Include="Utility\String.cpp" />
     <ClCompile Include="Utility\Convert.cpp" />
     <ClCompile Include="Trade\Account.cpp" />
@@ -89,6 +90,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="InterServer\StreamingServer.h" />
     <ClInclude Include="Utility\String.h" />
     <ClInclude Include="Utility\Convert.h" />
     <ClInclude Include="Trade\Account.h" />
