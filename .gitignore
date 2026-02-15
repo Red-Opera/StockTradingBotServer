@@ -236,3 +236,4 @@ replay_pid*
 .recommenders
 TradingBotWeb/gradle/wrapper/gradle-wrapper.properties
 TradingCore/Core/Config.h
+TradingBotWeb/src/main/resources/application.properties

@@ -37,6 +37,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'com.googlecode.juniversalchardet:juniversalchardet:1.0.3'
     implementation 'jakarta.xml.bind:jakarta.xml.bind-api:4.0.0'
+    implementation 'jakarta.annotation:jakarta.annotation-api:2.1.1'
     // MySQL Driver
     runtimeOnly 'com.mysql:mysql-connector-j'
     
