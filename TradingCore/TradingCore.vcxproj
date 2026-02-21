@@ -103,6 +103,12 @@
     <ClInclude Include="Utility\Directory.h" />
     <ClInclude Include="Login.h" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="RunTest\run.ps1" />
+    <None Include="RunTest\run.sh" />
+    <None Include="RunTest\stop.ps1" />
+    <None Include="RunTest\stop.sh" />
+  </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <PostBuildEvent>
       <Command>

@@ -27,10 +27,10 @@ public class HoldingStreamService
     private static final Logger log = LoggerFactory.getLogger(HoldingStreamService.class);
     private volatile boolean running = true;
 
-    private final List<SseEmitter> emitters = new ArrayList<>();
-    private final Map<String, Holding> latest = new ConcurrentHashMap<>();
-    private final ObjectMapper mapper = new ObjectMapper();
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final List<SseEmitter> emitters = new ArrayList<>();                    // 현재 연결된 모든 SseEmitter를 저장하는 리스트
+    private final Map<String, Holding> latest = new ConcurrentHashMap<>();          // 종목 코드별 최신 Holding 정보를 저장하는 맵
+    private final ObjectMapper mapper = new ObjectMapper();                         // JSON 문자열을 Holding 객체로 변환하기 위한 ObjectMapper
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();   // 소켓 연결과 데이터 수신을 처리할 단일 스레드 ExecutorService
 
     @PostConstruct
     public void Start() 
@@ -46,6 +46,7 @@ public class HoldingStreamService
         executor.shutdownNow();
     }
 
+    // 클라이언트가 SSE 스트림을 구독할 때마다 새로운 SseEmitter를 생성하여 반환하는 메서드
     public SseEmitter CreateEmitter()
     {
         SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
@@ -58,16 +59,19 @@ public class HoldingStreamService
         return emitter;
     }
 
+    // SseEmitter를 리스트에서 제거하는 메서드
     private void RemoveEmitter(SseEmitter emitter)
     {
         synchronized (emitters) { emitters.remove(emitter); }
     }
 
+    // 최신 보유 정보를 반환하는 메서드
     public Collection<Holding> GetLatestHoldings()
     {
         return latest.values();
     }
 
+    // 새로운 Holding 정보가 수신될 때마다 모든 연결된 클라이언트에게 해당 정보를 전송하는 메서드
     private void Broadcast(Holding holding)
     {
         synchronized (emitters)

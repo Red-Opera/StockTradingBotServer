@@ -2,16 +2,16 @@ package com.springboot.model;
 
 public class Holding
 {
-    private String account;
-    private String code;
-    private String name;
+    private String account;             // 계좌 번호
+    private String code;                // 종목 코드
+    private String name;                // 종목명
 
-    private long quantity = 0;
-    private long price = 0;
-    private long value = 0;
-    private long purchasePrice = 0;
-    private long profitLoss = 0;
-    private double profitRate = 0.0;
+    private long quantity = 0;          // 보유 수량
+    private long price = 0;             // 현재가
+    private long value = 0;             // 평가 금액
+    private long purchasePrice = 0;     // 매입 금액
+    private long profitLoss = 0;        // 손익 금액
+    private double profitRate = 0.0;    // 손익률
 
     public Holding() { }
 
