@@ -16,12 +16,14 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <mutex>
 
 using json = nlohmann::json;
 
 std::set<std::string> Account::accounts;
 std::string Account::currentAccountNumber;
 std::map<std::string, Holding> Account::holdings;
+std::mutex Account::holdingsMutex;
 
 std::set<std::string>& Account::GetAllAccountNumbers()
 {
@@ -305,8 +307,8 @@ void Account::RefreshCurrentHoldings()
 
     const int maxPages = 100;
 
-    // 기존 holdings 초기화
-    holdings.clear();
+	// 홀딩 정보를 임시로 저장할 로컬 맵 생성 (락 지속 시간 최소화)
+    std::map<std::string, Holding> localHoldings;
 
     log.Output(LogLevel::INFO, "현재 보유 종목 조회를 시작합니다...");
 
@@ -464,7 +466,7 @@ void Account::RefreshCurrentHoldings()
                         }
 
                         std::string key = holding.account + ":" + holding.code;
-                        holdings[key] = holding;
+                        localHoldings[key] = holding;
 
                         std::ostringstream oss;
                         oss << "종목 추가 : " << holding.code << " (" << holding.name << ") "
@@ -496,17 +498,32 @@ void Account::RefreshCurrentHoldings()
             break;
     }
 
+	// 락을 최소화하기 위해 로컬 맵에 데이터를 모두 채운 후 한 번에 스왑
+    {
+        std::lock_guard<std::mutex> lock(holdingsMutex);
+        holdings.swap(localHoldings);
+    }
+
     std::ostringstream summary;
     summary << "보유 종목 조회 완료. 총 " << holdings.size() << "개 종목";
 
     log.Output(LogLevel::INFO, summary.str().c_str());
 }
 
+std::map<std::string, Holding> Account::GetHoldingsSnapshot()
+{
+    std::lock_guard<std::mutex> lock(holdingsMutex);
+
+    return holdings;
+}
+
 void Account::ShowHoldings()
 {
     Log& log = Log::GetInstance();
 
-    if (holdings.empty())
+    auto currentHoldings = GetHoldingsSnapshot();
+
+    if (currentHoldings.empty())
     {
 		log.Output(LogLevel::INFO, "보유 종목이 없습니다.", LogTarget::CONSOLE);
 
@@ -520,7 +537,7 @@ void Account::ShowHoldings()
     double totalValue = 0.0;
     double totalProfitLoss = 0.0;
 
-    for (std::pair<std::string, Holding> currentPair : holdings)
+    for (const std::pair<std::string, Holding>& currentPair : currentHoldings)
     {
         const Holding& holding = currentPair.second;
 

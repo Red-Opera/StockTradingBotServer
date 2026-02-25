@@ -4,7 +4,6 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import com.springboot.model.VisitorCount;
-import org.springframework.http.ResponseEntity;
 
 @Controller
 public class HomeController 
