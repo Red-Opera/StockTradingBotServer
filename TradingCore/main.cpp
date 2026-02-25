@@ -37,9 +37,7 @@ int main()
 
     // 종료 요청이 올 때까지 대기 (안전한 방식)
     while (!gTerminate.load())
-    {
         std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
 
     // 종료 처리
     server.Stop();

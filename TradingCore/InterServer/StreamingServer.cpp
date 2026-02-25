@@ -103,6 +103,7 @@ bool StreamingServer::Start(uint16_t port)
 
     running = true;
     acceptThread = std::thread(&StreamingServer::AcceptLoop, this);
+    pollingThread = std::thread(&StreamingServer::RefrashLoop, this);
 
     std::ostringstream oss;
     oss << "StreamingServer 시작 포트=" << listenPort;
@@ -132,6 +133,9 @@ void StreamingServer::Stop()
 
     if (acceptThread.joinable())
         acceptThread.join();
+
+    if (pollingThread.joinable())
+        pollingThread.join();
 
     Log::GetInstance().Output(LogLevel::INFO, "StreamingServer 중지됨");
 }
@@ -233,7 +237,7 @@ void StreamingServer::ClientLoop(int clientSocket)
         }
 
 		// 다음 스냅샷 전까지 잠시 대기; 이 값으로 스트림 속도 조절
-        std::this_thread::sleep_for(1000ms);
+        std::this_thread::sleep_for(std::chrono::milliseconds(clientSendIntervalMs));
     }
 
 #ifdef _WIN32
@@ -241,4 +245,22 @@ void StreamingServer::ClientLoop(int clientSocket)
 #else
     close(clientSocket);
 #endif
+}
+
+void StreamingServer::RefrashLoop()
+{
+    Log& log = Log::GetInstance();
+
+    log.Output(LogLevel::INFO, "보유 종목 폴링 시작");
+
+    while (running)
+    {
+        Account::RefreshCurrentHoldings();
+
+        // pollingIntervalMs 동안 10ms 단위로 대기하여 빠르게 종료 신호를 감지
+        for (int elapsed = 0; elapsed < pollingIntervalMs && running; elapsed += 10)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    log.Output(LogLevel::INFO, "보유 종목 폴링 종료");
 }
