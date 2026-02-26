@@ -6,6 +6,7 @@
 #include <chrono>
 #include <vector>
 #include <sstream>
+#include <ctime>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -255,7 +256,26 @@ void StreamingServer::RefrashLoop()
 
     while (running)
     {
-        Account::RefreshCurrentHoldings();
+        // 현재 시각(로컬 기준) 확인
+        std::time_t now = std::time(nullptr);
+        std::tm localTime = {};
+
+#ifdef _WIN32
+        localtime_s(&localTime, &now);
+#else
+        localtime_r(&now, &localTime);
+#endif
+
+        int hour = localTime.tm_hour;
+
+        // 22시 ~ 07시는 장 운영 시간 외 → API 호출 생략, 기존 데이터 유지
+        bool isOffHours = (hour >= 22 || hour < 7);
+
+        if (isOffHours)
+            log.Output(LogLevel::INFO, "장 운영 시간 외 (22:00~07:00) - API 호출 생략");
+
+        else
+            Account::RefreshCurrentHoldings();
 
         // pollingIntervalMs 동안 10ms 단위로 대기하여 빠르게 종료 신호를 감지
         for (int elapsed = 0; elapsed < pollingIntervalMs && running; elapsed += 10)

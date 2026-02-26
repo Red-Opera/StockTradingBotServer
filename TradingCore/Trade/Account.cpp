@@ -381,7 +381,8 @@ void Account::RefreshCurrentHoldings()
 
             curl_slist_free_all(headers);
             curl_easy_cleanup(curl);
-            break;
+
+            return; // holdings 갱신 없이 기존 데이터 유지
         }
 
         // 헤더 파싱
@@ -424,7 +425,14 @@ void Account::RefreshCurrentHoldings()
 
                     log.Output(LogLevel::ERROR, oss.str().c_str());
 
-                    break;
+                    // 토큰 만료 오류(return_code == 3)인 경우 토큰 초기화하여 다음 호출에서 재발급
+                    if (returnCode == 3)
+                        Login::ClearAccessToken();
+
+                    curl_slist_free_all(headers);
+                    curl_easy_cleanup(curl);
+
+                    return; // holdings 갱신 없이 기존 데이터 유지
                 }
 
                 // acnt_evlt_remn_indv_tot 배열 파싱

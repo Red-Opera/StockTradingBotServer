@@ -10,17 +10,18 @@
 
 using json = nlohmann::json;
 
+std::string Login::accessToken;
+
 // 접근토큰 발급
 std::string Login::GetAccessToken()
 {
     Log& log = Log::GetInstance();
 
     std::string readBuffer;
-    static std::string token;
 
 	// 이미 토큰이 발급된 경우 재사용
-    if (token != "")
-		return token;
+    if (!accessToken.empty())
+		return accessToken;
 
     // 1. 요청할 API URL
     std::string endpoint = "/oauth2/token";
@@ -42,7 +43,7 @@ std::string Login::GetAccessToken()
     {
         log.Output(LogLevel::ERROR, "CURL 초기화 실패");
 
-        return nullptr;
+        return std::string();
     }
 
     // 2. header 설정
@@ -82,7 +83,7 @@ std::string Login::GetAccessToken()
 
             // 토큰 추출
             if (responseJson.contains("token"))
-                token = responseJson["token"].get<std::string>();
+                accessToken = responseJson["token"].get<std::string>();
         }
 
         catch (json::parse_error& e)
@@ -97,13 +98,20 @@ std::string Login::GetAccessToken()
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-	if (token.empty())
+	if (accessToken.empty())
 		log.Output(LogLevel::ERROR, "토큰 발급 실패");
 
     else
 		log.Output(LogLevel::INFO, "토큰 발급 성공");
 
-    return token;
+    return accessToken;
+}
+
+void Login::ClearAccessToken()
+{
+    Log::GetInstance().Output(LogLevel::INFO, "토큰 초기화 - 재발급을 요청합니다.");
+
+    accessToken.clear();
 }
 
 size_t Login::WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp)
