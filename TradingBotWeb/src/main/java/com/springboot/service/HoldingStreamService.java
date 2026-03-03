@@ -1,9 +1,14 @@
 package com.springboot.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.springboot.data.HoldingSnapshotRepository;
+import com.springboot.data.PortfolioSnapshotRepository;
 import com.springboot.model.Holding;
+import com.springboot.model.HoldingSnapshot;
+import com.springboot.model.PortfolioSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -13,6 +18,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -30,10 +36,24 @@ public class HoldingStreamService
     private final List<SseEmitter> emitters = new ArrayList<>();                    // 현재 연결된 모든 SseEmitter를 저장하는 리스트
     private final Map<String, Holding> latest = new ConcurrentHashMap<>();          // 종목 코드별 최신 Holding 정보를 저장하는 맵
     private final ObjectMapper mapper = new ObjectMapper();                         // JSON 문자열을 Holding 객체로 변환하기 위한 ObjectMapper
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();   // 소켓 연결과 데이터 수신을 처리할 단일 스레드 ExecutorService
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();   // 소켓 연결과 데이터 수신을 처리할 단일 스레드
+
+    private final PortfolioSnapshotRepository portfolioSnapshotRepository;
+    private final HoldingSnapshotRepository holdingSnapshotRepository;
+    private final SnapshotService snapshotService;
+
+    @Autowired
+    public HoldingStreamService(PortfolioSnapshotRepository portfolioSnapshotRepository,
+            HoldingSnapshotRepository holdingSnapshotRepository,
+            SnapshotService snapshotService) 
+    {
+        this.portfolioSnapshotRepository = portfolioSnapshotRepository;
+        this.holdingSnapshotRepository = holdingSnapshotRepository;
+        this.snapshotService = snapshotService;
+    }
 
     @PostConstruct
-    public void Start() 
+    public void Start()
     {
         executor.submit(this::ConnectLoop);
     }
@@ -71,6 +91,27 @@ public class HoldingStreamService
         return latest.values();
     }
 
+    // 데이터베이스에서 최신 보유 정보를 조회하는 메서드
+    public List<HoldingSnapshot> GetLatestHoldingsFromDB()
+    {
+        return holdingSnapshotRepository.findLatestSnapshots();
+    }
+
+    // 특정 기간의 포트폴리오 스냅샷 조회
+    public List<PortfolioSnapshot> GetPortfolioHistory(LocalDateTime startTime, LocalDateTime endTime)
+    {
+        if (endTime == null)
+            return portfolioSnapshotRepository.findBySnapshotTimeAfterOrderBySnapshotTimeAsc(startTime);
+        
+        return portfolioSnapshotRepository.findBySnapshotTimeBetweenOrderBySnapshotTimeAsc(startTime, endTime);
+    }
+
+    // 최근 N개의 포트폴리오 스냅샷 조회
+    public List<PortfolioSnapshot> GetRecentPortfolioSnapshots(int limit)
+    {
+        return portfolioSnapshotRepository.findTopNByOrderBySnapshotTimeDesc(limit);
+    }
+
     // 새로운 Holding 정보가 수신될 때마다 모든 연결된 클라이언트에게 해당 정보를 전송하는 메서드
     private void Broadcast(Holding holding)
     {
@@ -84,7 +125,7 @@ public class HoldingStreamService
                 {
                     emitter.send(SseEmitter.event().name("holding").data(holding));
                 }
-                
+
                 catch (Exception ex)
                 {
                     toRemove.add(emitter);
@@ -99,46 +140,49 @@ public class HoldingStreamService
     {
         while (running)
         {
-            try (
-                    Socket socket = new Socket("localhost", 9000);
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
-                )
-            {
-                log.info("Connected to localhost:9000 for holdings stream");
-                String line;
-
-                while (running && (line = reader.readLine()) != null)
+            try
+            (
+                Socket socket = new Socket("localhost", 9000);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8)))
                 {
-                    line = line.trim();
-                    
-                    if (line.isEmpty())
-                        continue;
+                    log.info("Connected to localhost:9000 for holdings stream");
+                    String line;
 
-                    try
+                    while (running && (line = reader.readLine()) != null)
                     {
-                        Holding h = mapper.readValue(line, Holding.class);
-                        latest.put(h.getCode(), h);
+                        line = line.trim();
+
+                        if (line.isEmpty())
+                            continue;
 
                         try
                         {
-                            log.info("Received holding: {}", mapper.writeValueAsString(h));
+                            Holding h = mapper.readValue(line, Holding.class);
+                            latest.put(h.getCode(), h);
+
+                            try
+                            {
+                                log.info("Received holding: {}", mapper.writeValueAsString(h));
+                            }
+
+                            catch (Exception ignore)
+                            {
+
+                            }
+
+                            Broadcast(h);
+
+                            // 주기적으로 스냅샷 저장 (SnapshotService에서 간격 체크)
+                            snapshotService.SaveSnapshotIfNeeded(latest);
                         }
 
-                        catch (Exception ignore)
-                        {
-
-                        }
-
-                        Broadcast(h);
-                    }
-                    
                     catch (Exception e)
                     {
                         log.warn("Failed to parse holding json: {}", line, e);
                     }
                 }
             }
-            
+
             catch (Exception e)
             {
                 log.warn("Socket read error or connection failed, will retry in 2s", e);
@@ -147,7 +191,7 @@ public class HoldingStreamService
                 {
                     Thread.sleep(2000);
                 }
-                
+
                 catch (InterruptedException ie)
                 {
                     Thread.currentThread().interrupt();
