@@ -115,6 +115,34 @@ public class HoldingStreamService {
         return portfolioSnapshotRepository.findTopNByOrderBySnapshotTimeDesc(limit);
     }
 
+    // 시간 간격별로 샘플링된 포트폴리오 스냅샷 조회
+    public List<PortfolioSnapshot> GetSampledPortfolioHistory(LocalDateTime startTime, LocalDateTime endTime,
+            int intervalSeconds) {
+        List<PortfolioSnapshot> rawData = GetPortfolioHistory(startTime, endTime);
+        if (rawData.isEmpty() || intervalSeconds <= 0) {
+            return rawData;
+        }
+
+        List<PortfolioSnapshot> sampled = new ArrayList<>();
+        LocalDateTime nextSampleTime = rawData.get(0).getSnapshotTime();
+
+        for (PortfolioSnapshot snapshot : rawData) {
+            if (snapshot.getSnapshotTime().isAfter(nextSampleTime)
+                    || snapshot.getSnapshotTime().isEqual(nextSampleTime)) {
+                sampled.add(snapshot);
+                nextSampleTime = snapshot.getSnapshotTime().plusSeconds(intervalSeconds);
+            }
+        }
+
+        // 마지막 데이터 포인트는 항상 포함 (최신 상태 반영)
+        PortfolioSnapshot lastRaw = rawData.get(rawData.size() - 1);
+        if (sampled.isEmpty() || !sampled.get(sampled.size() - 1).getId().equals(lastRaw.getId())) {
+            sampled.add(lastRaw);
+        }
+
+        return sampled;
+    }
+
     // 새로운 Holding 정보가 수신될 때마다 모든 연결된 클라이언트에게 해당 정보를 전송하는 메서드
     private void Broadcast(Holding holding) {
         synchronized (emitters) {
