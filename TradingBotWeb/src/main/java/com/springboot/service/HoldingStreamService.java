@@ -1,11 +1,13 @@
 package com.springboot.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.springboot.data.HoldingSnapshotRepository;
 import com.springboot.data.PortfolioSnapshotRepository;
 import com.springboot.model.Holding;
 import com.springboot.model.HoldingSnapshot;
 import com.springboot.model.PortfolioSnapshot;
+import com.springboot.model.TradeRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,19 +26,20 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @Service
-public class HoldingStreamService
-{
+public class HoldingStreamService {
     private static final Logger log = LoggerFactory.getLogger(HoldingStreamService.class);
     private volatile boolean running = true;
 
-    private final List<SseEmitter> emitters = new ArrayList<>();                    // 현재 연결된 모든 SseEmitter를 저장하는 리스트
-    private final Map<String, Holding> latest = new ConcurrentHashMap<>();          // 종목 코드별 최신 Holding 정보를 저장하는 맵
-    private final ObjectMapper mapper = new ObjectMapper();                         // JSON 문자열을 Holding 객체로 변환하기 위한 ObjectMapper
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();   // 소켓 연결과 데이터 수신을 처리할 단일 스레드
+    private final List<SseEmitter> emitters = new ArrayList<>(); // 현재 연결된 모든 SseEmitter를 저장하는 리스트
+    private final Map<String, Holding> latest = new ConcurrentHashMap<>(); // 종목 코드별 최신 Holding 정보를 저장하는 맵
+    private final List<TradeRecord> latestTrades = new CopyOnWriteArrayList<>(); // 최신 거래 내역을 저장하는 리스트 (메모리 전용)
+    private final ObjectMapper mapper = new ObjectMapper(); // JSON 문자열을 객체로 변환하기 위한 ObjectMapper
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(); // 소켓 연결과 데이터 수신을 처리할 단일 스레드
 
     private final PortfolioSnapshotRepository portfolioSnapshotRepository;
     private final HoldingSnapshotRepository holdingSnapshotRepository;
@@ -45,33 +48,31 @@ public class HoldingStreamService
     @Autowired
     public HoldingStreamService(PortfolioSnapshotRepository portfolioSnapshotRepository,
             HoldingSnapshotRepository holdingSnapshotRepository,
-            SnapshotService snapshotService) 
-    {
+            SnapshotService snapshotService) {
         this.portfolioSnapshotRepository = portfolioSnapshotRepository;
         this.holdingSnapshotRepository = holdingSnapshotRepository;
         this.snapshotService = snapshotService;
     }
 
     @PostConstruct
-    public void Start()
-    {
+    public void Start() {
         executor.submit(this::ConnectLoop);
     }
 
     @PreDestroy
-    public void Stop()
-    {
+    public void Stop() {
         running = false;
 
         executor.shutdownNow();
     }
 
     // 클라이언트가 SSE 스트림을 구독할 때마다 새로운 SseEmitter를 생성하여 반환하는 메서드
-    public SseEmitter CreateEmitter()
-    {
+    public SseEmitter CreateEmitter() {
         SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
 
-        synchronized (emitters) { emitters.add(emitter); }
+        synchronized (emitters) {
+            emitters.add(emitter);
+        }
 
         emitter.onCompletion(() -> RemoveEmitter(emitter));
         emitter.onTimeout(() -> RemoveEmitter(emitter));
@@ -80,54 +81,51 @@ public class HoldingStreamService
     }
 
     // SseEmitter를 리스트에서 제거하는 메서드
-    private void RemoveEmitter(SseEmitter emitter)
-    {
-        synchronized (emitters) { emitters.remove(emitter); }
+    private void RemoveEmitter(SseEmitter emitter) {
+        synchronized (emitters) {
+            emitters.remove(emitter);
+        }
     }
 
     // 최신 보유 정보를 반환하는 메서드
-    public Collection<Holding> GetLatestHoldings()
-    {
+    public Collection<Holding> GetLatestHoldings() {
         return latest.values();
     }
 
+    // 최신 거래 내역을 반환하는 메서드 (메모리 전용)
+    public List<TradeRecord> GetLatestTrades() {
+        return new ArrayList<>(latestTrades);
+    }
+
     // 데이터베이스에서 최신 보유 정보를 조회하는 메서드
-    public List<HoldingSnapshot> GetLatestHoldingsFromDB()
-    {
+    public List<HoldingSnapshot> GetLatestHoldingsFromDB() {
         return holdingSnapshotRepository.findLatestSnapshots();
     }
 
     // 특정 기간의 포트폴리오 스냅샷 조회
-    public List<PortfolioSnapshot> GetPortfolioHistory(LocalDateTime startTime, LocalDateTime endTime)
-    {
+    public List<PortfolioSnapshot> GetPortfolioHistory(LocalDateTime startTime, LocalDateTime endTime) {
         if (endTime == null)
             return portfolioSnapshotRepository.findBySnapshotTimeAfterOrderBySnapshotTimeAsc(startTime);
-        
+
         return portfolioSnapshotRepository.findBySnapshotTimeBetweenOrderBySnapshotTimeAsc(startTime, endTime);
     }
 
     // 최근 N개의 포트폴리오 스냅샷 조회
-    public List<PortfolioSnapshot> GetRecentPortfolioSnapshots(int limit)
-    {
+    public List<PortfolioSnapshot> GetRecentPortfolioSnapshots(int limit) {
         return portfolioSnapshotRepository.findTopNByOrderBySnapshotTimeDesc(limit);
     }
 
     // 새로운 Holding 정보가 수신될 때마다 모든 연결된 클라이언트에게 해당 정보를 전송하는 메서드
-    private void Broadcast(Holding holding)
-    {
-        synchronized (emitters)
-        {
+    private void Broadcast(Holding holding) {
+        synchronized (emitters) {
             List<SseEmitter> toRemove = new ArrayList<>();
 
-            for (SseEmitter emitter : emitters)
-            {
-                try
-                {
+            for (SseEmitter emitter : emitters) {
+                try {
                     emitter.send(SseEmitter.event().name("holding").data(holding));
                 }
 
-                catch (Exception ex)
-                {
+                catch (Exception ex) {
                     toRemove.add(emitter);
                 }
             }
@@ -136,37 +134,73 @@ public class HoldingStreamService
         }
     }
 
-    private void ConnectLoop()
-    {
-        while (running)
-        {
-            try
-            (
-                Socket socket = new Socket("localhost", 9000);
-                BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8)))
-                {
-                    log.info("Connected to localhost:9000 for holdings stream");
-                    String line;
+    // 거래 내역을 모든 연결된 클라이언트에게 전송하는 메서드
+    private void BroadcastTrade(TradeRecord trade) {
+        synchronized (emitters) {
+            List<SseEmitter> toRemove = new ArrayList<>();
 
-                    while (running && (line = reader.readLine()) != null)
-                    {
-                        line = line.trim();
+            for (SseEmitter emitter : emitters) {
+                try {
+                    emitter.send(SseEmitter.event().name("trade").data(trade));
+                }
 
-                        if (line.isEmpty())
-                            continue;
+                catch (Exception ex) {
+                    toRemove.add(emitter);
+                }
+            }
 
-                        try
-                        {
-                            Holding h = mapper.readValue(line, Holding.class);
+            emitters.removeAll(toRemove);
+        }
+    }
+
+    private void ConnectLoop() {
+        while (running) {
+            try (
+                    Socket socket = new Socket("localhost", 9000);
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+                log.info("Connected to localhost:9000 for holdings stream");
+                String line;
+
+                while (running && (line = reader.readLine()) != null) {
+                    line = line.trim();
+
+                    if (line.isEmpty())
+                        continue;
+
+                    try {
+                        // type 필드를 확인하여 holding과 trade를 구분
+                        JsonNode node = mapper.readTree(line);
+                        String type = node.has("type") ? node.get("type").asText() : "holding";
+
+                        if ("trade".equals(type)) {
+                            // 거래 내역 처리
+                            TradeRecord trade = mapper.treeToValue(node, TradeRecord.class);
+
+                            log.info("Received trade: {} {} {} {}",
+                                    trade.getTradeDate(), trade.getStockCode(),
+                                    trade.getIoTypeName(), trade.getTradeQty());
+
+                            // 메모리 캐시 업데이트 (동일 tradeDate+tradeNo+stockCode 중복 방지)
+                            boolean exists = latestTrades.stream()
+                                    .anyMatch(t -> t.getTradeDate().equals(trade.getTradeDate()) &&
+                                            t.getTradeNo().equals(trade.getTradeNo()) &&
+                                            t.getStockCode().equals(trade.getStockCode()));
+
+                            if (!exists) {
+                                latestTrades.add(trade);
+                                BroadcastTrade(trade);
+                            }
+                        } else {
+                            // 기존 Holding 처리
+                            Holding h = mapper.treeToValue(node, Holding.class);
                             latest.put(h.getCode(), h);
 
-                            try
-                            {
+                            try {
                                 log.info("Received holding: {}", mapper.writeValueAsString(h));
                             }
 
-                            catch (Exception ignore)
-                            {
+                            catch (Exception ignore) {
 
                             }
 
@@ -175,25 +209,22 @@ public class HoldingStreamService
                             // 주기적으로 스냅샷 저장 (SnapshotService에서 간격 체크)
                             snapshotService.SaveSnapshotIfNeeded(latest);
                         }
+                    }
 
-                    catch (Exception e)
-                    {
-                        log.warn("Failed to parse holding json: {}", line, e);
+                    catch (Exception e) {
+                        log.warn("Failed to parse json: {}", line, e);
                     }
                 }
             }
 
-            catch (Exception e)
-            {
+            catch (Exception e) {
                 log.warn("Socket read error or connection failed, will retry in 2s", e);
 
-                try
-                {
+                try {
                     Thread.sleep(2000);
                 }
 
-                catch (InterruptedException ie)
-                {
+                catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     break;
                 }

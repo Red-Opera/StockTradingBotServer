@@ -5,12 +5,11 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "holding_snapshot", indexes = {
-    @Index(name = "idx_snapshot_time", columnList = "snapshot_time"),
-    @Index(name = "idx_code", columnList = "code"),
-    @Index(name = "idx_snapshot_code", columnList = "snapshot_time, code")
+        @Index(name = "idx_snapshot_time", columnList = "snapshot_time"),
+        @Index(name = "idx_code", columnList = "code"),
+        @Index(name = "idx_snapshot_code", columnList = "snapshot_time, code")
 })
-public class HoldingSnapshot
-{
+public class HoldingSnapshot {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -42,30 +41,28 @@ public class HoldingSnapshot
     @Column(name = "profit_loss")
     private Long profitLoss = 0L;
 
-    @Column(name = "profit_rate", precision = 10, scale = 4)
+    @Column(name = "profit_rate")
     private Double profitRate = 0.0;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
-    protected void onCreate()
-    {
+    protected void onCreate() {
         createdAt = LocalDateTime.now();
-        
-        if (snapshotTime == null)
-        {
+
+        if (snapshotTime == null) {
             snapshotTime = LocalDateTime.now();
         }
     }
 
     // Constructors
-    public HoldingSnapshot() { }
+    public HoldingSnapshot() {
+    }
 
     public HoldingSnapshot(LocalDateTime snapshotTime, String account, String code, String name,
-                          Long quantity, Long price, Long value, Long purchasePrice,
-                          Long profitLoss, Double profitRate)
-    {
+            Long quantity, Long price, Long value, Long purchasePrice,
+            Long profitLoss, Double profitRate) {
         this.snapshotTime = snapshotTime;
         this.account = account;
         this.code = code;
@@ -79,62 +76,119 @@ public class HoldingSnapshot
     }
 
     // Factory method to create from Holding
-    public static HoldingSnapshot fromHolding(Holding holding)
-    {
+    public static HoldingSnapshot fromHolding(Holding holding) {
         return new HoldingSnapshot(
-            LocalDateTime.now(),
-            holding.getAccount(),
-            holding.getCode(),
-            holding.getName(),
-            holding.getQuantity(),
-            holding.getPrice(),
-            holding.getValue(),
-            holding.getPurchasePrice(),
-            holding.getProfitLoss(),
-            holding.getProfitRate()
-        );
+                LocalDateTime.now(),
+                holding.getAccount(),
+                holding.getCode(),
+                holding.getName(),
+                holding.getQuantity(),
+                holding.getPrice(),
+                holding.getValue(),
+                holding.getPurchasePrice(),
+                holding.getProfitLoss(),
+                holding.getProfitRate());
     }
 
     // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public Long getId() {
+        return id;
+    }
 
-    public LocalDateTime getSnapshotTime() { return snapshotTime; }
-    public void setSnapshotTime(LocalDateTime snapshotTime) { this.snapshotTime = snapshotTime; }
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-    public String getAccount() { return account; }
-    public void setAccount(String account) { this.account = account; }
+    public LocalDateTime getSnapshotTime() {
+        return snapshotTime;
+    }
 
-    public String getCode() { return code; }
-    public void setCode(String code) { this.code = code; }
+    public void setSnapshotTime(LocalDateTime snapshotTime) {
+        this.snapshotTime = snapshotTime;
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public String getAccount() {
+        return account;
+    }
 
-    public Long getQuantity() { return quantity; }
-    public void setQuantity(Long quantity) { this.quantity = quantity; }
+    public void setAccount(String account) {
+        this.account = account;
+    }
 
-    public Long getPrice() { return price; }
-    public void setPrice(Long price) { this.price = price; }
+    public String getCode() {
+        return code;
+    }
 
-    public Long getValue() { return value; }
-    public void setValue(Long value) { this.value = value; }
+    public void setCode(String code) {
+        this.code = code;
+    }
 
-    public Long getPurchasePrice() { return purchasePrice; }
-    public void setPurchasePrice(Long purchasePrice) { this.purchasePrice = purchasePrice; }
+    public String getName() {
+        return name;
+    }
 
-    public Long getProfitLoss() { return profitLoss; }
-    public void setProfitLoss(Long profitLoss) { this.profitLoss = profitLoss; }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-    public Double getProfitRate() { return profitRate; }
-    public void setProfitRate(Double profitRate) { this.profitRate = profitRate; }
+    public Long getQuantity() {
+        return quantity;
+    }
 
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public void setQuantity(Long quantity) {
+        this.quantity = quantity;
+    }
+
+    public Long getPrice() {
+        return price;
+    }
+
+    public void setPrice(Long price) {
+        this.price = price;
+    }
+
+    public Long getValue() {
+        return value;
+    }
+
+    public void setValue(Long value) {
+        this.value = value;
+    }
+
+    public Long getPurchasePrice() {
+        return purchasePrice;
+    }
+
+    public void setPurchasePrice(Long purchasePrice) {
+        this.purchasePrice = purchasePrice;
+    }
+
+    public Long getProfitLoss() {
+        return profitLoss;
+    }
+
+    public void setProfitLoss(Long profitLoss) {
+        this.profitLoss = profitLoss;
+    }
+
+    public Double getProfitRate() {
+        return profitRate;
+    }
+
+    public void setProfitRate(Double profitRate) {
+        this.profitRate = profitRate;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         return "HoldingSnapshot{" +
                 "id=" + id +
                 ", snapshotTime=" + snapshotTime +

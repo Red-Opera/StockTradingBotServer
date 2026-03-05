@@ -105,6 +105,7 @@ bool StreamingServer::Start(uint16_t port)
     running = true;
     acceptThread = std::thread(&StreamingServer::AcceptLoop, this);
     pollingThread = std::thread(&StreamingServer::RefrashLoop, this);
+    tradePollingThread = std::thread(&StreamingServer::TradeHistoryPollingLoop, this);
 
     std::ostringstream oss;
     oss << "StreamingServer 시작 포트=" << listenPort;
@@ -137,6 +138,9 @@ void StreamingServer::Stop()
 
     if (pollingThread.joinable())
         pollingThread.join();
+
+    if (tradePollingThread.joinable())
+        tradePollingThread.join();
 
     Log::GetInstance().Output(LogLevel::INFO, "StreamingServer 중지됨");
 }
@@ -188,14 +192,16 @@ void StreamingServer::ClientLoop(int clientSocket)
 		// 현재 보유 종목 스냅샷 가져오기
         auto currentHoldings = Account::GetHoldingsSnapshot();
 
+        // 보유 종목 전송 (type: holding)
         for (const auto& nameHoldingPair : currentHoldings)
         {
             const Holding& holding = nameHoldingPair.second;
 
-			// 클라이언트에게 보낼 JSON 객체 생성
+			// 클라이언트에게 보낼 JSON 객체 생성 (type 필드 추가)
             std::ostringstream result;
             result  << "{"
-                    << "\"account\":\"" << holding.account << "\",";
+                    << "\"type\":\"holding\",";
+            result  << "\"account\":\"" << holding.account << "\",";
             result  << "\"code\":\"" << holding.code << "\",";
             result  << "\"name\":\"" << holding.name << "\",";
             result  << "\"quantity\":" << holding.quantity << ",";
@@ -211,29 +217,75 @@ void StreamingServer::ClientLoop(int clientSocket)
 #ifdef _WIN32
             int sent = send(clientSocket, line.c_str(), (int)line.size(), 0);
 
-            if (sent > 0)
-                continue;
-
-            Log::GetInstance().Output(LogLevel::INFO, "클라이언트 연결 끊김 (StreamingServer::ClientLoop)");
-            closesocket(clientSocket);
-
-            return;
+            if (sent <= 0)
+            {
+                Log::GetInstance().Output(LogLevel::INFO, "클라이언트 연결 끊김 (StreamingServer::ClientLoop)");
+                closesocket(clientSocket);
+                return;
+            }
 #else
             ssize_t sent = send(clientSocket, line.c_str(), line.size(), MSG_NOSIGNAL);
 
-            if (sent > 0)
-                continue;
+            if (sent <= 0)
+            {
+                int err = errno;
+                std::ostringstream ess;
+                ess << "send 실패 (StreamingServer::ClientLoop), errno = " << err << ", msg = " << std::strerror(err);
+                Log::GetInstance().Output(LogLevel::INFO, ess.str().c_str());
+                close(clientSocket);
+                return;
+            }
+#endif
+        }
 
-            int err = errno;
-            std::ostringstream ess;
-            ess << "send 실패 (StreamingServer::ClientLoop), errno = " << err << ", msg = " << std::strerror(err);
+        // 거래 내역 전송 (type: trade)
+        auto trades = Account::GetTradeHistorySnapshot();
 
-            Log::GetInstance().Output(LogLevel::INFO, ess.str().c_str());
+        for (const auto& trade : trades)
+        {
+            std::ostringstream result;
+            result  << "{"
+                    << "\"type\":\"trade\","
+                    << "\"tradeDate\":\"" << trade.tradeDate << "\","
+                    << "\"tradeNo\":\"" << trade.tradeNo << "\","
+                    << "\"stockCode\":\"" << trade.stockCode << "\","
+                    << "\"stockName\":\"" << trade.stockName << "\","
+                    << "\"ioType\":\"" << trade.ioType << "\","
+                    << "\"ioTypeName\":\"" << trade.ioTypeName << "\","
+                    << "\"tradeQty\":\"" << trade.tradeQty << "\","
+                    << "\"tradeAmt\":\"" << trade.tradeAmt << "\","
+                    << "\"exctAmt\":\"" << trade.exctAmt << "\","
+                    << "\"commission\":\"" << trade.commission << "\","
+                    << "\"taxFee\":\"" << trade.taxFee << "\","
+                    << "\"tradeUnit\":\"" << trade.tradeUnit << "\","
+                    << "\"procTime\":\"" << trade.procTime << "\","
+                    << "\"creditDealTypeName\":\"" << trade.creditDealTypeName << "\","
+                    << "\"remarkName\":\"" << trade.remarkName << "\"";
+            result  << "}\n";
 
-			// 클라이언트 연결 끊김
-            close(clientSocket);
+            std::string line = result.str();
 
-            return;
+#ifdef _WIN32
+            int sent = send(clientSocket, line.c_str(), (int)line.size(), 0);
+
+            if (sent <= 0)
+            {
+                Log::GetInstance().Output(LogLevel::INFO, "클라이언트 연결 끊김 (StreamingServer::ClientLoop - trade)");
+                closesocket(clientSocket);
+                return;
+            }
+#else
+            ssize_t sent = send(clientSocket, line.c_str(), line.size(), MSG_NOSIGNAL);
+
+            if (sent <= 0)
+            {
+                int err = errno;
+                std::ostringstream ess;
+                ess << "send 실패 (StreamingServer::ClientLoop - trade), errno = " << err << ", msg = " << std::strerror(err);
+                Log::GetInstance().Output(LogLevel::INFO, ess.str().c_str());
+                close(clientSocket);
+                return;
+            }
 #endif
         }
 
@@ -283,4 +335,46 @@ void StreamingServer::RefrashLoop()
     }
 
     log.Output(LogLevel::INFO, "보유 종목 폴링 종료");
+}
+
+void StreamingServer::TradeHistoryPollingLoop()
+{
+    Log& log = Log::GetInstance();
+
+    log.Output(LogLevel::INFO, "거래 내역 폴링 시작");
+
+    while (running)
+    {
+        // 현재 시각(로컬 기준) 확인
+        std::time_t now = std::time(nullptr);
+        std::tm localTime = {};
+
+#ifdef _WIN32
+        localtime_s(&localTime, &now);
+#else
+        localtime_r(&now, &localTime);
+#endif
+
+        // 오늘 날짜를 YYYYMMDD 형식으로 생성
+        char dateBuf[16];
+        std::strftime(dateBuf, sizeof(dateBuf), "%Y%m%d", &localTime);
+        std::string today(dateBuf);
+
+        // 10년 전 날짜를 시작일로 설정하여 전체 거래 내역 조회
+        std::tm startTime = localTime;
+        startTime.tm_year -= 10;
+        std::mktime(&startTime);
+
+        char startBuf[16];
+        std::strftime(startBuf, sizeof(startBuf), "%Y%m%d", &startTime);
+        std::string startDate(startBuf);
+
+        Account::RefreshTradeHistory(startDate, today);
+
+        // tradeHistoryPollingIntervalMs 동안 10ms 단위로 대기하여 빠르게 종료 신호를 감지
+        for (int elapsed = 0; elapsed < tradeHistoryPollingIntervalMs && running; elapsed += 10)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    log.Output(LogLevel::INFO, "거래 내역 폴링 종료");
 }

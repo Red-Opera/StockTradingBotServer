@@ -21,14 +21,17 @@ private:
     void AcceptLoop();
     void ClientLoop(int clientSocket);  // JSON 객체를 줄바꿈으로 구분하여 지속적으로 전송하는 메소드
     void RefrashLoop();                 // 주기적으로 REST API를 호출하여 보유 종목을 갱신하는 메소드
+    void TradeHistoryPollingLoop();     // 주기적으로 REST API를 호출하여 거래 내역을 갱신하는 메소드
 
     std::thread acceptThread;
     std::thread pollingThread;          // 폴링 스레드
+    std::thread tradePollingThread;     // 거래 내역 폴링 스레드
     std::atomic<bool> running;
     uint16_t listenPort;
 
     int listenSocket;                   // 플랫폼에 따라 소켓 핸들 타입이 다르므로 int로 통일 (Winsock에서는 SOCKET을 int로 캐스팅)
 
-    static constexpr int pollingIntervalMs = 500;       // REST API 폴링 주기 (밀리초)
-    static constexpr int clientSendIntervalMs = 500;    // 클라이언트 전송 주기 (밀리초)
+    static constexpr int pollingIntervalMs = 500;                   // REST API 폴링 주기 (밀리초)
+    static constexpr int clientSendIntervalMs = 500;                // 클라이언트 전송 주기 (밀리초)
+    static constexpr int tradeHistoryPollingIntervalMs = 60000;     // 거래 내역 폴링 주기 (1분)
 };
