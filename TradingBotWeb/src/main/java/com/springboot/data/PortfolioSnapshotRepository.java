@@ -31,15 +31,12 @@ public interface PortfolioSnapshotRepository extends JpaRepository<PortfolioSnap
     long countByDate(@Param("date") LocalDateTime date);
 
     // DB 레벨 시간 버킷 샘플링: 버킷 별 최신 레코드 반환 (Java 메모리 풀로드 방지)
-    // 장 운영 시간(09:00~15:30)의 데이터만 포함
     @Query(value = """
             SELECT p.* FROM portfolio_snapshot p
             INNER JOIN (
                 SELECT MAX(id) AS id
                 FROM portfolio_snapshot
                 WHERE snapshot_time >= :startTime AND snapshot_time <= :endTime
-                  AND (HOUR(snapshot_time) > 8 AND (HOUR(snapshot_time) < 15 OR (HOUR(snapshot_time) = 15 AND MINUTE(snapshot_time) <= 30)))
-                  AND DAYOFWEEK(snapshot_time) NOT IN (1, 7)
                 GROUP BY FLOOR(UNIX_TIMESTAMP(snapshot_time) / :intervalSeconds)
             ) t ON p.id = t.id
             ORDER BY p.snapshot_time ASC
