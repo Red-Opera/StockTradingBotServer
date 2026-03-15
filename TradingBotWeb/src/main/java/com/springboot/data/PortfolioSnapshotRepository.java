@@ -29,4 +29,20 @@ public interface PortfolioSnapshotRepository extends JpaRepository<PortfolioSnap
     // 특정 날짜의 스냅샷 개수
     @Query("SELECT COUNT(p) FROM PortfolioSnapshot p WHERE DATE(p.snapshotTime) = DATE(:date)")
     long countByDate(@Param("date") LocalDateTime date);
+
+    // DB 레벨 시간 버킷 샘플링: 버킷 별 최신 레코드 반환 (Java 메모리 풀로드 방지)
+    @Query(value = """
+            SELECT p.* FROM portfolio_snapshot p
+            INNER JOIN (
+                SELECT MAX(id) AS id
+                FROM portfolio_snapshot
+                WHERE snapshot_time >= :startTime AND snapshot_time <= :endTime
+                GROUP BY FLOOR(UNIX_TIMESTAMP(snapshot_time) / :intervalSeconds)
+            ) t ON p.id = t.id
+            ORDER BY p.snapshot_time ASC
+            """, nativeQuery = true)
+    List<PortfolioSnapshot> findSampledByTimeRange(
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime,
+            @Param("intervalSeconds") int intervalSeconds);
 }
