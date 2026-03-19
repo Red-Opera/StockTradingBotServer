@@ -755,7 +755,29 @@ void Account::RefreshTradeHistory(const std::string& startDate, const std::strin
                         record.commission = item.value("cmsn", "");
                         record.taxFee = item.value("tax_sum_cmsn", "");
                         record.tradeUnit = item.value("trde_unit", "");
-                        record.procTime = item.value("proc_tm", "");
+                        
+                        // procTime을 HH:MM:SS 형식으로 포맷팅
+                        {
+                            std::string rawProcTime = item.value("proc_tm", "");
+                            std::string digits;
+                            for (char c : rawProcTime) {
+                                if (std::isdigit(c)) {
+                                    digits += c;
+                                }
+                            }
+                            
+                            if (digits.length() > 0) {
+                                // 6자리 미만이면 앞에 0을 패딩
+                                if (digits.length() < 6) {
+                                    digits = std::string(6 - digits.length(), '0') + digits;
+                                }
+                                // HH:MM:SS 형식으로 변환
+                                record.procTime = digits.substr(0, 2) + ":" + digits.substr(2, 2) + ":" + digits.substr(4, 2);
+                            } else {
+                                record.procTime = rawProcTime;
+                            }
+                        }
+                        
                         record.creditDealTypeName = item.value("crd_deal_tp_nm", "");
                         record.remarkName = item.value("rmrk_nm", "");
 

@@ -360,9 +360,10 @@ void StreamingServer::TradeHistoryPollingLoop()
         std::strftime(dateBuf, sizeof(dateBuf), "%Y%m%d", &localTime);
         std::string today(dateBuf);
 
-        // 10년 전 날짜를 시작일로 설정하여 전체 거래 내역 조회
+        // 1년 전 날짜를 시작일로 설정하여 전체 거래 내역 조회
         std::tm startTime = localTime;
-        startTime.tm_year -= 10;
+        startTime.tm_year -= 1;
+        startTime.tm_mday += 1;
         std::mktime(&startTime);
 
         char startBuf[16];
