@@ -31,21 +31,29 @@ public class VisitorInterceptor implements HandlerInterceptor {
             // 식별자 생성 및 증가 시도
             String visitorIdentifier = generateVisitorIdentifier(ipAddress, userAgent);
             visitorService.incrementDailyVisitors(visitorIdentifier);
-        } catch (Exception ex) {
+        } 
+        
+        catch (Exception ex)
+        {
             // 방문자 집계는 보조 기능이므로 실패해도 요청 처리에 영향 주지 않음
         }
 
         return true;
     }
 
-    private String generateVisitorIdentifier(String ip, String userAgent) {
-        try {
+    private String generateVisitorIdentifier(String ip, String userAgent)
+    {
+        try
+        {
             MessageDigest md = MessageDigest.getInstance("MD5");
             md.update((ip + userAgent).getBytes());
             byte[] digest = md.digest();
 
             return DatatypeConverter.printHexBinary(digest).toUpperCase();
-        } catch (NoSuchAlgorithmException e) {
+        }
+        
+        catch (NoSuchAlgorithmException e)
+        {
             return ip + userAgent;
         }
     }
