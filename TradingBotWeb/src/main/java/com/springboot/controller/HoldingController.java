@@ -17,6 +17,9 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 
 @CrossOrigin(origins = "*")
 @RestController
@@ -39,6 +42,18 @@ public class HoldingController {
     public Collection<Holding> GetLastest() {
         // 최신 보유 정보를 반환하는 엔드포인트 (메모리에서)
         return service.GetLatestHoldings();
+    }
+
+    // 종목코드 목록에 대한 직전 거래일 종가 조회 (DB 기반)
+    @GetMapping("/holdings/prev-close")
+    public Map<String, Long> GetPrevClosePrices(@RequestParam(name = "codes") String codesCsv) {
+        List<String> codes = Arrays.stream(codesCsv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+
+        return service.GetPrevClosePriceMap(codes);
     }
 
     // 데이터베이스에서 최신 보유 정보 조회

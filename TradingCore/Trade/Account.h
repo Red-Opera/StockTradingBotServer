@@ -16,7 +16,9 @@ struct Holding
     long long value = 0;            // 평가금액 (정수, 원 단위)
     long long purchasePrice = 0;    // 매입가 (정수, 원 단위)
     long long profitLoss = 0;       // 평가손익 (정수, 원 단위)
-    double profitRate = 0.0;        // 수익률
+    double profitRate = 0.0;        // 수익률 (매입가 대비)
+    long long prevClosePrice = 0;   // 전일 종가 (정수, 원 단위)
+    double dailyProfitRate = 0.0;   // 하루 수익률 (전일 종가 대비)
 };
 
 struct TradeRecord

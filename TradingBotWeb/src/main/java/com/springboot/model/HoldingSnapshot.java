@@ -44,6 +44,12 @@ public class HoldingSnapshot {
     @Column(name = "profit_rate")
     private Double profitRate = 0.0;
 
+    @Column(name = "prev_close_price")
+    private Long prevClosePrice = 0L;
+
+    @Column(name = "daily_profit_rate")
+    private Double dailyProfitRate = 0.0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -62,7 +68,7 @@ public class HoldingSnapshot {
 
     public HoldingSnapshot(LocalDateTime snapshotTime, String account, String code, String name,
             Long quantity, Long price, Long value, Long purchasePrice,
-            Long profitLoss, Double profitRate) {
+            Long profitLoss, Double profitRate, Long prevClosePrice, Double dailyProfitRate) {
         this.snapshotTime = snapshotTime;
         this.account = account;
         this.code = code;
@@ -73,6 +79,8 @@ public class HoldingSnapshot {
         this.purchasePrice = purchasePrice;
         this.profitLoss = profitLoss;
         this.profitRate = profitRate;
+        this.prevClosePrice = prevClosePrice;
+        this.dailyProfitRate = dailyProfitRate;
     }
 
     // Factory method to create from Holding
@@ -87,7 +95,9 @@ public class HoldingSnapshot {
                 holding.getValue(),
                 holding.getPurchasePrice(),
                 holding.getProfitLoss(),
-                holding.getProfitRate());
+                holding.getProfitRate(),
+                holding.getPrevClosePrice(),
+                holding.getDailyProfitRate());
     }
 
     // Getters and Setters
@@ -177,6 +187,22 @@ public class HoldingSnapshot {
 
     public void setProfitRate(Double profitRate) {
         this.profitRate = profitRate;
+    }
+
+    public Long getPrevClosePrice() {
+        return prevClosePrice;
+    }
+
+    public void setPrevClosePrice(Long prevClosePrice) {
+        this.prevClosePrice = prevClosePrice;
+    }
+
+    public Double getDailyProfitRate() {
+        return dailyProfitRate;
+    }
+
+    public void setDailyProfitRate(Double dailyProfitRate) {
+        this.dailyProfitRate = dailyProfitRate;
     }
 
     public LocalDateTime getCreatedAt() {

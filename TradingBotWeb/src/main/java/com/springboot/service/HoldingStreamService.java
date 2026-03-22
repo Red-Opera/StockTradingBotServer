@@ -20,9 +20,13 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.DayOfWeek;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,6 +38,7 @@ import java.util.concurrent.Executors;
 public class HoldingStreamService {
     private static final Logger log = LoggerFactory.getLogger(HoldingStreamService.class);
     private volatile boolean running = true;
+    private static final LocalTime DAY_START = LocalTime.MIDNIGHT;
 
     private final List<SseEmitter> emitters = new ArrayList<>(); // 현재 연결된 모든 SseEmitter를 저장하는 리스트
     private final Map<String, Holding> latest = new ConcurrentHashMap<>(); // 종목 코드별 최신 Holding 정보를 저장하는 맵
@@ -95,6 +100,53 @@ public class HoldingStreamService {
     // 최신 거래 내역을 반환하는 메서드 (메모리 전용)
     public List<TradeRecord> GetLatestTrades() {
         return new ArrayList<>(latestTrades);
+    }
+
+    // 종목코드 목록 기준 직전 거래일 종가(스냅샷 가격) 조회
+    public Map<String, Long> GetPrevClosePriceMap(List<String> codes) {
+        Map<String, Long> result = new LinkedHashMap<>();
+
+        if (codes == null || codes.isEmpty())
+            return result;
+
+        LocalDateTime referenceEndTime = ResolvePrevCloseReferenceTime(LocalDateTime.now());
+
+        List<HoldingSnapshotRepository.CodePriceProjection> rows =
+                holdingSnapshotRepository.findLatestPricesByCodesBefore(codes, referenceEndTime);
+
+        for (HoldingSnapshotRepository.CodePriceProjection row : rows)
+        {
+            if (row.getCode() == null)
+                continue;
+
+            result.put(row.getCode(), row.getPrice() == null ? 0L : row.getPrice());
+        }
+
+        return result;
+    }
+
+    private LocalDateTime ResolvePrevCloseReferenceTime(LocalDateTime now) {
+        LocalDate date = now.toLocalDate();
+        DayOfWeek dayOfWeek = date.getDayOfWeek();
+
+        // 요구 사항 반영:
+        // - 월/화/수/목/금 -> 해당 일 00:00 데이터
+        // - 토/일 -> 금요일 00:00 데이터
+        switch (dayOfWeek)
+        {
+            case SATURDAY:
+                date = date.minusDays(1);
+                break;
+
+            case SUNDAY:
+                date = date.minusDays(2);
+                break;
+
+            default:
+                break;
+        }
+
+        return date.atTime(DAY_START);
     }
 
     // 데이터베이스에서 최신 보유 정보를 조회하는 메서드

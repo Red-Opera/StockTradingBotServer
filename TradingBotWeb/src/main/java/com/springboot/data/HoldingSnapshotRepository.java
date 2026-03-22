@@ -3,6 +3,7 @@ package com.springboot.data;
 import com.springboot.model.HoldingSnapshot;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
@@ -11,6 +12,12 @@ import java.util.List;
 @Repository
 public interface HoldingSnapshotRepository extends JpaRepository<HoldingSnapshot, Long>
 {
+    interface CodePriceProjection {
+        String getCode();
+
+        Long getPrice();
+    }
+
     // 특정 시간 이후의 스냅샷 조회
     List<HoldingSnapshot> findBySnapshotTimeAfterOrderBySnapshotTimeAsc(LocalDateTime startTime);
     
@@ -33,4 +40,20 @@ public interface HoldingSnapshotRepository extends JpaRepository<HoldingSnapshot
     // 최근 스냅샷 조회 (모든 종목)
     @Query("SELECT h FROM HoldingSnapshot h WHERE h.snapshotTime = (SELECT MAX(h2.snapshotTime) FROM HoldingSnapshot h2)")
     List<HoldingSnapshot> findLatestSnapshots();
+
+        // 기준 시각 이전(포함) 종목별 최신 가격 조회
+        @Query(value = """
+                        SELECT hs.code AS code, hs.price AS price
+                        FROM holding_snapshot hs
+                        INNER JOIN (
+                                SELECT code, MAX(id) AS max_id
+                                FROM holding_snapshot
+                                WHERE snapshot_time <= :endTime
+                                    AND code IN (:codes)
+                                GROUP BY code
+                        ) t ON hs.id = t.max_id
+                        """, nativeQuery = true)
+        List<CodePriceProjection> findLatestPricesByCodesBefore(
+                        @Param("codes") List<String> codes,
+                        @Param("endTime") LocalDateTime endTime);
 }
