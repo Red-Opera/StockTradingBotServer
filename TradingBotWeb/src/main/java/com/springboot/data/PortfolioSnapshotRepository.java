@@ -37,6 +37,9 @@ public interface PortfolioSnapshotRepository extends JpaRepository<PortfolioSnap
                 SELECT MAX(id) AS id
                 FROM portfolio_snapshot
                 WHERE snapshot_time >= :startTime AND snapshot_time <= :endTime
+                  AND DAYOFWEEK(snapshot_time) BETWEEN 2 AND 6
+                  AND TIME(snapshot_time) >= '09:00:00'
+                  AND TIME(snapshot_time) <= '15:30:00'
                 GROUP BY FLOOR(UNIX_TIMESTAMP(snapshot_time) / :intervalSeconds)
             ) t ON p.id = t.id
             ORDER BY p.snapshot_time ASC

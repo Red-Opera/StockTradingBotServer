@@ -137,7 +137,6 @@ public class HoldingController {
     // 포트폴리오 차트용 데이터 조회 (지정된 범위에 따라 다운샘플링)
     @GetMapping("/portfolio/chart")
     public List<PortfolioSnapshot> GetPortfolioChartData(@RequestParam(defaultValue = "day") String range) {
-        LocalDateTime now = LocalDateTime.now();
         LocalDateTime endTime;
         LocalDateTime startTime;
         int intervalSeconds;
@@ -163,26 +162,26 @@ public class HoldingController {
                 break;
             case "day":
                 // 최근 7일, 1시간 간격 (최대 168개)
-                endTime = now;
-                startTime = now.minusDays(7);
+                endTime = getEffectiveEndTime();
+                startTime = endTime.minusDays(7);
                 intervalSeconds = 3600;
                 break;
             case "week":
                 // 최근 1개월, 6시간 간격 (최대 120개)
-                endTime = now;
-                startTime = now.minusMonths(1);
+                endTime = getEffectiveEndTime();
+                startTime = endTime.minusMonths(1);
                 intervalSeconds = 21600;
                 break;
             case "month":
                 // 최근 6개월, 1일 간격 (최대 180개)
-                endTime = now;
-                startTime = now.minusMonths(6);
+                endTime = getEffectiveEndTime();
+                startTime = endTime.minusMonths(6);
                 intervalSeconds = 86400;
                 break;
             default:
                 // 기본값: day
-                endTime = now;
-                startTime = now.minusDays(7);
+                endTime = getEffectiveEndTime();
+                startTime = endTime.minusDays(7);
                 intervalSeconds = 3600;
                 break;
         }
