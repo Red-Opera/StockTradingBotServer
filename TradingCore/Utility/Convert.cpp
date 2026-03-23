@@ -1,5 +1,7 @@
 ﻿#include "Convert.h"
 
+#include <vector>
+
 double Convert::JsonToDouble(const json& j, const std::string& key)
 {
     try
@@ -67,6 +69,25 @@ JsonData Convert::GetJsonData(const std::string_view& data)
 
     result.key = std::string(data.substr(0, pos));
     result.value = std::string(data.substr(pos + 1));
+
+	return result;
+}
+
+Week Convert::IntToWeek(int weekInt)
+{
+	return static_cast<Week>(1 << (weekInt % 7));
+}
+
+std::vector<int> Convert::WeekToInt(Week week)
+{
+    std::vector<int> result;
+	int intWeek = static_cast<int>(week);
+
+    for (int i = 0; i < 7; ++i)
+    {
+        if ((intWeek & (1 << i)) != 0)
+            result.push_back(i);
+    }
 
 	return result;
 }

@@ -78,6 +78,7 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
+    <ClCompile Include="Utility\DateTime.cpp" />
     <ClCompile Include="InterServer\StreamingServer.cpp" />
     <ClCompile Include="Utility\String.cpp" />
     <ClCompile Include="Utility\Convert.cpp" />
@@ -90,6 +91,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Utility\DateTime.h" />
     <ClInclude Include="InterServer\StreamingServer.h" />
     <ClInclude Include="Utility\String.h" />
     <ClInclude Include="Utility\Convert.h" />
