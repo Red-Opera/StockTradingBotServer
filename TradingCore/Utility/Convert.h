@@ -26,6 +26,7 @@ public:
 	static long JsonToLong(const json& j, const std::string& key);
 
 	static JsonData GetJsonData(const std::string_view& data);				// 키:값 쌍을 JsonData 구조체로 반환
+	static long long GetLongLongField(const nlohmann::json& item, std::initializer_list<const char*> keys);
 
 	// ============================================================================
 	// DateTime

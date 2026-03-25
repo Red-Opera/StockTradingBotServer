@@ -4,8 +4,8 @@
 #include "Core/Config.h"
 #include "Core/Log.h"
 #include "Utility/Convert.h"
-#include "Utility/String.h"
 #include "Utility/DateTime.h"
+#include "Utility/String.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -31,8 +31,8 @@ std::mutex Account::tradeHistoryMutex;
 std::vector<TradeRecord> Account::tradeHistory;
 
 std::mutex Account::cachedCloseMutex;
+std::map<std::string, long long> Account::lastKnownPriceByCode;
 std::map<std::string, long long> Account::lastEndPriceByCode;
-std::map<std::string, long long> Account::lastEndCostByCode;
 
 std::set<std::string>& Account::GetAllAccountNumbers()
 {
@@ -465,25 +465,32 @@ void Account::RefreshCurrentHoldings()
         }
 
 		// 직전 거래일 종가를 데이터베이스에서 종목 코드로 조회
-        std::map<std::string, long long> lastEndCostFromDatabase = GetLastEndPriceFromDatabase(stockCodes);
+        std::map<std::string, long long> lastEndPriceFromDatabase = GetLastEndPriceFromDatabase(stockCodes);
 
         for (std::pair<const std::string, Holding>& pair : localHoldings)
         {
             Holding& holding = pair.second;
 
 			// 데이터베이스에서 해당 주식의 직전 종가가 있는지 확인
-            auto lastEndPriceIndex = lastEndCostFromDatabase.find(holding.code);
+            auto lastEndPriceIndex = lastEndPriceFromDatabase.find(holding.code);
 
-			// 직전 종가가 없거나 0 이하인 경우는 보정하지 않고 넘어감
-            if (lastEndPriceIndex == lastEndCostFromDatabase.end() || lastEndPriceIndex->second <= 0)
+			// 직전 종가가 있으면 사용, 없으면 현재가를 임시로 사용 (초기 실행 시 DB가 비어있을 수 있음)
+            if (lastEndPriceIndex != lastEndPriceFromDatabase.end() && lastEndPriceIndex->second > 0)
+                holding.lastEndPrice = lastEndPriceIndex->second;   // 데이터베이스에서 가져온 직전 종가로 보정
+
+            else
+            {
+                holding.lastEndPrice = holding.price;   // DB에 데이터가 없으면 현재가를 전일 종가로 임시 설정
+                holding.dailyProfitRate = 0.0;          // 초기 데이터이므로 일간 수익률은 0으로 설정
+
                 continue;
+            }
 
-            holding.lastEndCost = lastEndPriceIndex->second;                                        // 데이터베이스에서 가져온 직전 종가로 보정
-			holding.dailyProfitRate = UpdateDailyProfitRate(holding.price, holding.lastEndCost);    // 보정된 직전 종가로 일간 수익률 재계산
+            holding.dailyProfitRate = UpdateDailyProfitRate(holding.price, holding.lastEndPrice);    // 보정된 직전 종가로 일간 수익률 재계산
 
             std::lock_guard<std::mutex> lock(cachedCloseMutex);
-            lastEndCostByCode[holding.code] = holding.lastEndCost;
-            lastEndPriceByCode[holding.code] = holding.price;
+            lastEndPriceByCode[holding.code] = holding.lastEndPrice;
+            lastKnownPriceByCode[holding.code] = holding.price;
         }
     }
 
@@ -858,19 +865,19 @@ void Account::AppendHoldingsFromResponse(const json& data, std::map<std::string,
             holding.profitRate = (dotPos != std::string::npos) ? std::stod(inputRate) : std::stod(rate);
         }
 
-        const long long apiLastEndCost = GetLongLongField(item,
+        const long long apiLastEndCost = Convert::GetLongLongField(item,
             {
                 "prev_close_pric", "prev_close_price", "pred_close_pric",
                 "pred_close_price", "bfdy_clos_pric", "yd_clpr", "pre_clos"
             });
 
-        const long long dailyDiffAmount = GetLongLongField(item, { "pred_pre", "prdy_vrss", "today_vs_prev", "flu_amt", "updn_pric" });
+        const long long dailyDiffAmount = Convert::GetLongLongField(item, { "pred_pre", "prdy_vrss", "today_vs_prev", "flu_amt", "updn_pric" });
 
         if (apiLastEndCost > 0)
-            holding.lastEndCost = apiLastEndCost;
+            holding.lastEndPrice = apiLastEndCost;
 
         else if (holding.price != 0 && dailyDiffAmount != 0)
-            holding.lastEndCost = holding.price - dailyDiffAmount;
+            holding.lastEndPrice = holding.price - dailyDiffAmount;
 
         else
         {
@@ -880,33 +887,33 @@ void Account::AppendHoldingsFromResponse(const json& data, std::map<std::string,
 
             if (weekday == Week::Saturday || weekday == Week::Sunday)
             {
-                std::map<std::string, long long>::iterator lastCostIndex = lastEndCostByCode.find(holding.code);
+                std::map<std::string, long long>::iterator lastCostIndex = lastEndPriceByCode.find(holding.code);
 
-                if (lastCostIndex != lastEndCostByCode.end())
-                    holding.lastEndCost = lastCostIndex->second;
+                if (lastCostIndex != lastEndPriceByCode.end())
+                    holding.lastEndPrice = lastCostIndex->second;
             }
 
             else
             {
-                auto priceIter = lastEndPriceByCode.find(holding.code);
+                auto priceIter = lastKnownPriceByCode.find(holding.code);
 
-                if (priceIter != lastEndPriceByCode.end())
-                    holding.lastEndCost = priceIter->second;
+                if (priceIter != lastKnownPriceByCode.end())
+                    holding.lastEndPrice = priceIter->second;
             }
 
-            if (holding.lastEndCost < 0)
-                holding.lastEndCost = 0;
+            if (holding.lastEndPrice < 0)
+                holding.lastEndPrice = 0;
         }
 
         // 전일 종가가 유효한 경우에만 하루 수익률 계산
-		holding.dailyProfitRate = UpdateDailyProfitRate(holding.price, holding.lastEndCost);
+		holding.dailyProfitRate = UpdateDailyProfitRate(holding.price, holding.lastEndPrice);
 
         {
             std::lock_guard<std::mutex> lock(cachedCloseMutex);
-            lastEndPriceByCode[holding.code] = holding.price;
+            lastKnownPriceByCode[holding.code] = holding.price;
 
-            if (holding.lastEndCost > 0)
-                lastEndCostByCode[holding.code] = holding.lastEndCost;
+            if (holding.lastEndPrice > 0)
+                lastEndPriceByCode[holding.code] = holding.lastEndPrice;
         }
 
         std::string key = holding.account + ":" + holding.code;
@@ -924,14 +931,14 @@ void Account::AppendHoldingsFromResponse(const json& data, std::map<std::string,
     }
 }
 
-double Account::UpdateDailyProfitRate(long long currentPrice, long long lastEndCost)
+double Account::UpdateDailyProfitRate(long long currentPrice, long long lastEndPrice)
 {
-    if (lastEndCost <= 0)
+    if (lastEndPrice <= 0)
 		return 0.0;
 
-	double priceDifference = static_cast<double>(currentPrice - lastEndCost);
+	double priceDifference = static_cast<double>(currentPrice - lastEndPrice);
 
-    return priceDifference / static_cast<double>(lastEndCost) * 100.0;
+    return priceDifference / static_cast<double>(lastEndPrice) * 100.0;
 }
 
 std::map<std::string, long long> Account::GetLastEndPriceFromDatabase(const std::set<std::string>& codes)
@@ -1044,39 +1051,4 @@ std::map<std::string, long long> Account::GetLastEndPriceFromDatabase(const std:
     }
 
     return result;
-}
-
-long long Account::GetLongLongField(const nlohmann::json& item, std::initializer_list<const char*> keys)
-{
-    for (const char* key : keys)
-    {
-        if (!item.contains(key) || item[key].is_null())
-            continue;
-
-        const json& value = item[key];
-
-        try
-        {
-            if (value.is_number_integer())
-                return value.get<long long>();
-
-            if (value.is_number_float())
-                return static_cast<long long>(value.get<double>());
-
-            if (value.is_string())
-            {
-                std::string digits = String::GetSignDigit(value.get<std::string>());
-
-                if (!digits.empty())
-                    return std::stoll(digits);
-            }
-        }
-
-        catch (...)
-        {
-            // 후보 필드 파싱 실패 시 다음 후보 필드를 확인
-        }
-    }
-
-    return 0;
 }

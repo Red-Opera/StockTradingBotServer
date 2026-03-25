@@ -44,8 +44,8 @@ public class HoldingSnapshot {
     @Column(name = "profit_rate")
     private Double profitRate = 0.0;
 
-    @Column(name = "prev_close_price")
-    private Long prevClosePrice = 0L;
+    @Column(name = "last_end_price")
+    private Long lastEndPrice = 0L;
 
     @Column(name = "daily_profit_rate")
     private Double dailyProfitRate = 0.0;
@@ -68,7 +68,7 @@ public class HoldingSnapshot {
 
     public HoldingSnapshot(LocalDateTime snapshotTime, String account, String code, String name,
             Long quantity, Long price, Long value, Long purchasePrice,
-            Long profitLoss, Double profitRate, Long prevClosePrice, Double dailyProfitRate) {
+            Long profitLoss, Double profitRate, Long lastEndPrice, Double dailyProfitRate) {
         this.snapshotTime = snapshotTime;
         this.account = account;
         this.code = code;
@@ -79,7 +79,7 @@ public class HoldingSnapshot {
         this.purchasePrice = purchasePrice;
         this.profitLoss = profitLoss;
         this.profitRate = profitRate;
-        this.prevClosePrice = prevClosePrice;
+        this.lastEndPrice = lastEndPrice;
         this.dailyProfitRate = dailyProfitRate;
     }
 
@@ -96,7 +96,7 @@ public class HoldingSnapshot {
                 holding.getPurchasePrice(),
                 holding.getProfitLoss(),
                 holding.getProfitRate(),
-                holding.getPrevClosePrice(),
+                holding.getLastEndPrice(),
                 holding.getDailyProfitRate());
     }
 
@@ -189,12 +189,12 @@ public class HoldingSnapshot {
         this.profitRate = profitRate;
     }
 
-    public Long getPrevClosePrice() {
-        return prevClosePrice;
+    public Long getLastEndPrice() {
+        return lastEndPrice;
     }
 
-    public void setPrevClosePrice(Long prevClosePrice) {
-        this.prevClosePrice = prevClosePrice;
+    public void setLastEndPrice(Long lastEndPrice) {
+        this.lastEndPrice = lastEndPrice;
     }
 
     public Double getDailyProfitRate() {

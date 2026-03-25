@@ -19,7 +19,7 @@ struct Holding
     long long purchasePrice = 0;    // 매입가 (정수, 원 단위)
     long long profitLoss = 0;       // 평가손익 (정수, 원 단위)
     double profitRate = 0.0;        // 수익률 (매입가 대비)
-    long long lastEndCost = 0;   // 전일 종가 (정수, 원 단위)
+    long long lastEndPrice = 0;     // 전일 종가 (정수, 원 단위)
     double dailyProfitRate = 0.0;   // 하루 수익률 (전일 종가 대비)
 };
 
@@ -65,11 +65,9 @@ private:
     static size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata);     // 헤더 콜백 함수
 
     static void AppendHoldingsFromResponse(const nlohmann::json& data, std::map<std::string, Holding>& localHoldings);
-	static double UpdateDailyProfitRate(long long currentPrice, long long lastEndCost);                                 // 현재 가격과 전일 종가를 기반으로 하루 수익률 계산
+	static double UpdateDailyProfitRate(long long currentPrice, long long lastEndPrice);                                 // 현재 가격과 전일 종가를 기반으로 하루 수익률 계산
 
     static std::map<std::string, long long> GetLastEndPriceFromDatabase(const std::set<std::string>& codes);
-
-    static long long GetLongLongField(const nlohmann::json& item, std::initializer_list<const char*> keys);
 
     static std::set<std::string> accounts;              // 모든 계좌번호를 저장하는 변수ㄴ
     static std::string currentAccountNumber;            // 현재 사용 중인 계좌번호를 저장하는 변수
@@ -80,7 +78,7 @@ private:
     static std::mutex tradeHistoryMutex;                // tradeHistory 접근을 보호하기 위한 뮤텍스
 	static std::mutex cachedCloseMutex;                 // 직전 종가 캐시 접근을 보호하기 위한 뮤텍스
 
-	static std::map<std::string, long long> lastEndPriceByCode;             // 종목코드별 직전 종가를 저장하는 맵 (정수, 원 단위)
-	static std::map<std::string, long long> lastEndCostByCode;              // 종목코드별 직전 종가를 저장하는 맵 (정수, 원 단위)
+	static std::map<std::string, long long> lastKnownPriceByCode;            // 종목코드별 최근에 알려진 가격을 저장하는 맵
+	static std::map<std::string, long long> lastEndPriceByCode;              // 종목코드별 직전 종가를 저장하는 맵 (정수, 원 단위)
     static constexpr const char* webServerUrl = "http://localhost:4500";
 };

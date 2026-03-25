@@ -14,7 +14,7 @@ public class Holding {
     private long purchasePrice = 0; // 매입 금액
     private long profitLoss = 0; // 손익 금액
     private double profitRate = 0.0; // 손익률 (매입가 대비)
-    private long prevClosePrice = 0; // 전일 종가
+    private long lastEndPrice = 0; // 전일 종가
     private double dailyProfitRate = 0.0; // 하루 수익률 (전일 종가 대비)
 
     public Holding() {
@@ -56,8 +56,8 @@ public class Holding {
         return profitRate;
     }
 
-    public long getPrevClosePrice() {
-        return prevClosePrice;
+    public long getLastEndPrice() {
+        return lastEndPrice;
     }
 
     public double getDailyProfitRate() {
@@ -100,8 +100,8 @@ public class Holding {
         this.profitRate = profitRate;
     }
 
-    public void setPrevClosePrice(long prevClosePrice) {
-        this.prevClosePrice = prevClosePrice;
+    public void setLastEndPrice(long lastEndPrice) {
+        this.lastEndPrice = lastEndPrice;
     }
 
     public void setDailyProfitRate(double dailyProfitRate) {

@@ -210,7 +210,7 @@ void StreamingServer::ClientLoop(int clientSocket)
             result  << "\"purchasePrice\":" << holding.purchasePrice << ",";
             result  << "\"profitLoss\":" << holding.profitLoss << ",";
             result  << "\"profitRate\":" << holding.profitRate << ",";
-            result  << "\"lastEndCost\":" << holding.lastEndCost << ",";
+            result  << "\"lastEndPrice\":" << holding.lastEndPrice << ",";
             result  << "\"dailyProfitRate\":" << holding.dailyProfitRate;
             result  << "}\n";
 

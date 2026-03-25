@@ -1,4 +1,5 @@
 ﻿#include "Convert.h"
+#include "String.h"
 
 #include <vector>
 
@@ -71,6 +72,41 @@ JsonData Convert::GetJsonData(const std::string_view& data)
     result.value = std::string(data.substr(pos + 1));
 
 	return result;
+}
+
+long long Convert::GetLongLongField(const nlohmann::json& item, std::initializer_list<const char*> keys)
+{
+    for (const char* key : keys)
+    {
+        if (!item.contains(key) || item[key].is_null())
+            continue;
+
+        const json& value = item[key];
+
+        try
+        {
+            if (value.is_number_integer())
+                return value.get<long long>();
+
+            if (value.is_number_float())
+                return static_cast<long long>(value.get<double>());
+
+            if (value.is_string())
+            {
+                std::string digits = String::GetSignDigit(value.get<std::string>());
+
+                if (!digits.empty())
+                    return std::stoll(digits);
+            }
+        }
+
+        catch (...)
+        {
+            // 후보 필드 파싱 실패 시 다음 후보 필드를 확인
+        }
+    }
+
+    return 0;
 }
 
 Week Convert::IntToWeek(int weekInt)
