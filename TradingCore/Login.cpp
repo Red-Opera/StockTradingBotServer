@@ -2,6 +2,7 @@
 
 #include "Core/Config.h"
 #include "Core/Log.h"
+#include "Core/Network.h"
 
 #include <iostream>
 #include <string>
@@ -54,7 +55,7 @@ std::string Login::GetAccessToken()
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Login::WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Network::WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
 
     // 4. HTTP POST 요청 수행
@@ -112,11 +113,4 @@ void Login::ClearAccessToken()
     Log::GetInstance().Output(LogLevel::INFO, "토큰 초기화 - 재발급을 요청합니다.");
 
     accessToken.clear();
-}
-
-size_t Login::WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp)
-{
-    userp->append((char*)contents, size * nmemb);
-
-    return size * nmemb;
 }

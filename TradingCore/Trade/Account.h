@@ -23,25 +23,6 @@ struct Holding
     double dailyProfitRate = 0.0;   // 하루 수익률 (전일 종가 대비)
 };
 
-struct TradeRecord
-{
-    std::string tradeDate;              // 거래일자 (trde_dt)
-    std::string tradeNo;                // 거래번호 (trde_no)
-    std::string stockCode;              // 종목코드 (stk_cd)
-    std::string stockName;              // 종목명 (stk_nm)
-    std::string ioType;                 // 입출구분 (io_tp)
-    std::string ioTypeName;             // 입출구분명 (io_tp_nm)
-    std::string tradeQty;               // 거래수량 (trde_qty_jwa_cnt)
-    std::string tradeAmt;               // 거래금액 (trde_amt)
-    std::string exctAmt;                // 정산금액 (exct_amt)
-    std::string commission;             // 수수료 (cmsn)
-    std::string taxFee;                 // 세금수수료합 (tax_sum_cmsn)
-    std::string tradeUnit;              // 거래단가 (trde_unit)
-    std::string procTime;               // 처리시간 (proc_tm)
-    std::string creditDealTypeName;     // 신용거래구분명 (crd_deal_tp_nm)
-    std::string remarkName;             // 적요명 (rmrk_nm)
-};
-
 class Account
 {
 public:
@@ -57,25 +38,19 @@ public:
     // 보유 종목의 스냅샷을 가져오는 메소드
     static std::map<std::string, Holding> GetHoldingsSnapshot();
 
-    // 거래 내역 관련 메소드
-    static void RefreshTradeHistory(const std::string& startDate, const std::string& endDate);  // 거래 내역 조회
-    static std::vector<TradeRecord> GetTradeHistorySnapshot();                                  // 거래 내역 스냅샷 반환
-
 private:
-    static size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata);     // 헤더 콜백 함수
+	static void AppendHoldingsFromResponse(const nlohmann::json& data, std::map<std::string, Holding>& localHoldings);  // API 응답에서 보유 종목 정보를 추출하여 localHoldings에 추가하는 메소드
+	static void RefreshDailyProfitRates(std::map<std::string, Holding>& localHoldings);             // 보유 종목들의 하루 수익률을 새로고침하는 메소드
+	static double CalculateDailyProfitRate(long long currentPrice, long long lastEndPrice);         // 현재 가격과 전일 종가를 기반으로 하루 수익률 계산
 
-    static void AppendHoldingsFromResponse(const nlohmann::json& data, std::map<std::string, Holding>& localHoldings);
-	static double UpdateDailyProfitRate(long long currentPrice, long long lastEndPrice);                                 // 현재 가격과 전일 종가를 기반으로 하루 수익률 계산
-
+	// 데이터베이스에서 종목코드 목록에 대한 직전 종가를 가져오는 메소드 (다중 코드로 조회하여 효율성 향상)
     static std::map<std::string, long long> GetLastEndPriceFromDatabase(const std::set<std::string>& codes);
 
-    static std::set<std::string> accounts;              // 모든 계좌번호를 저장하는 변수ㄴ
+    static std::set<std::string> accounts;              // 모든 계좌번호를 저장하는 변수
     static std::string currentAccountNumber;            // 현재 사용 중인 계좌번호를 저장하는 변수
     static std::map<std::string, Holding> holdings;     // 보유 종목 정보를 저장하는 변수
-    static std::vector<TradeRecord> tradeHistory;       // 거래 내역을 저장하는 변수
 
     static std::mutex holdingsMutex;                    // holdings 접근을 보호하기 위한 뮤텍스
-    static std::mutex tradeHistoryMutex;                // tradeHistory 접근을 보호하기 위한 뮤텍스
 	static std::mutex cachedCloseMutex;                 // 직전 종가 캐시 접근을 보호하기 위한 뮤텍스
 
 	static std::map<std::string, long long> lastKnownPriceByCode;            // 종목코드별 최근에 알려진 가격을 저장하는 맵

@@ -1,6 +1,8 @@
 ﻿#include "StreamingServer.h"
-#include "../Trade/Account.h"
+
 #include "Core/Log.h"
+#include "Trade/Account.h"
+#include "Trade/TradeHistory.h"
 
 #include <thread>
 #include <chrono>
@@ -241,7 +243,7 @@ void StreamingServer::ClientLoop(int clientSocket)
         }
 
         // 거래 내역 전송 (type: trade)
-        auto trades = Account::GetTradeHistorySnapshot();
+        auto trades = TradeHistory::GetTradeHistorySnapshot();
 
         for (const auto& trade : trades)
         {
@@ -372,7 +374,7 @@ void StreamingServer::TradeHistoryPollingLoop()
         std::strftime(startBuf, sizeof(startBuf), "%Y%m%d", &startTime);
         std::string startDate(startBuf);
 
-        Account::RefreshTradeHistory(startDate, today);
+        TradeHistory::RefreshTradeHistory(startDate, today);
 
         // tradeHistoryPollingIntervalMs 동안 10ms 단위로 대기하여 빠르게 종료 신호를 감지
         for (int elapsed = 0; elapsed < tradeHistoryPollingIntervalMs && running; elapsed += 10)

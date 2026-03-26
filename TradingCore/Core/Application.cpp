@@ -10,7 +10,7 @@ Application& Application::GetInstance()
 
 void Application::Initialize()
 {
-	LiftCycle::Initialize();
+	LifeCycle::Initialize();
 }
 
 Application::Application()

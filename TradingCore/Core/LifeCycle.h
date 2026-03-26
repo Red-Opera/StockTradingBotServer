@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-class LiftCycle
+class LifeCycle
 {
 public:
 	virtual void Initialize();

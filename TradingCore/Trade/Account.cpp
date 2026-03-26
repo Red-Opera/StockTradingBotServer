@@ -3,6 +3,7 @@
 
 #include "Core/Config.h"
 #include "Core/Log.h"
+#include "Core/Network.h"
 #include "Utility/Convert.h"
 #include "Utility/DateTime.h"
 #include "Utility/String.h"
@@ -10,16 +11,13 @@
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
-#include <string>
-#include <vector>
-#include <set>
-#include <map>
-#include <sstream>
 #include <algorithm>
 #include <cctype>
-#include <ctime>
-#include <chrono>
+#include <map>
 #include <mutex>
+#include <set>
+#include <sstream>
+#include <string>
 
 using json = nlohmann::json;
 
@@ -27,8 +25,6 @@ std::set<std::string> Account::accounts;
 std::string Account::currentAccountNumber;
 std::map<std::string, Holding> Account::holdings;
 std::mutex Account::holdingsMutex;
-std::mutex Account::tradeHistoryMutex;
-std::vector<TradeRecord> Account::tradeHistory;
 
 std::mutex Account::cachedCloseMutex;
 std::map<std::string, long long> Account::lastKnownPriceByCode;
@@ -94,9 +90,9 @@ std::set<std::string>& Account::GetAllAccountNumbers()
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "{}");
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Login::WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Network::WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, Network::HeaderCallback);
         curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerBuffer);
 
 		// HTTP POST 요청 수행
@@ -275,33 +271,21 @@ void Account::SetUseAccount()
 void Account::RefreshCurrentHoldings()
 {
     Log& log = Log::GetInstance();
-
-    // 현재 계좌번호 확인
-    if (currentAccountNumber.empty())
-    {
-        log.Output(LogLevel::ERROR, "현재 사용 중인 계좌번호가 설정되지 않았습니다.");
-
-        return;
-    }
-
-    // 액세스 토큰 가져오기
     std::string token = Login::GetAccessToken();
 
     if (token.empty())
     {
-        log.Output(LogLevel::ERROR, "접근 토큰이 비어있습니다. 잔고 조회를 중단합니다.");
+        log.Output(LogLevel::ERROR, "접근 토큰이 비어있습니다. 보유 종목 조회를 중단합니다.");
 
         return;
     }
 
-	// API 엔드포인트 및 URL 설정
-    const std::string endpoint = "/api/dostk/acnt";
-    const std::string url = std::string(Config::hostURL) + endpoint;
-
+    std::string endpoint = "/api/dostk/acnt";
+    std::string url = std::string(Config::hostURL) + endpoint;
     std::string hasGetNextData = "N";
     std::string nextKey = "";
 
-    const int maxPages = 100;
+    const int maxPages = 50;
 
 	// 홀딩 정보를 임시로 저장할 로컬 맵 생성 (락 지속 시간 최소화)
     std::map<std::string, Holding> localHoldings;
@@ -348,9 +332,9 @@ void Account::RefreshCurrentHoldings()
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Login::WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Network::WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, Network::HeaderCallback);
         curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerBuffer);
 
         CURLcode response = curl_easy_perform(curl);
@@ -451,48 +435,7 @@ void Account::RefreshCurrentHoldings()
             break;
     }
 
-    // Spring Boot + MySQL에서 종목별 직전 거래일 종가를 보강한다.
-    // (재시작 직후 캐시가 비어 있어도 전일 종가를 안정적으로 복원하기 위함)
-    {
-        std::set<std::string> stockCodes;
-
-        for (const auto& pair : localHoldings)
-        {
-            const Holding& holding = pair.second;
-
-            if (!holding.code.empty())
-                stockCodes.insert(holding.code);
-        }
-
-		// 직전 거래일 종가를 데이터베이스에서 종목 코드로 조회
-        std::map<std::string, long long> lastEndPriceFromDatabase = GetLastEndPriceFromDatabase(stockCodes);
-
-        for (std::pair<const std::string, Holding>& pair : localHoldings)
-        {
-            Holding& holding = pair.second;
-
-			// 데이터베이스에서 해당 주식의 직전 종가가 있는지 확인
-            auto lastEndPriceIndex = lastEndPriceFromDatabase.find(holding.code);
-
-			// 직전 종가가 있으면 사용, 없으면 현재가를 임시로 사용 (초기 실행 시 DB가 비어있을 수 있음)
-            if (lastEndPriceIndex != lastEndPriceFromDatabase.end() && lastEndPriceIndex->second > 0)
-                holding.lastEndPrice = lastEndPriceIndex->second;   // 데이터베이스에서 가져온 직전 종가로 보정
-
-            else
-            {
-                holding.lastEndPrice = holding.price;   // DB에 데이터가 없으면 현재가를 전일 종가로 임시 설정
-                holding.dailyProfitRate = 0.0;          // 초기 데이터이므로 일간 수익률은 0으로 설정
-
-                continue;
-            }
-
-            holding.dailyProfitRate = UpdateDailyProfitRate(holding.price, holding.lastEndPrice);    // 보정된 직전 종가로 일간 수익률 재계산
-
-            std::lock_guard<std::mutex> lock(cachedCloseMutex);
-            lastEndPriceByCode[holding.code] = holding.lastEndPrice;
-            lastKnownPriceByCode[holding.code] = holding.price;
-        }
-    }
+    RefreshDailyProfitRates(localHoldings);
 
 	// 락을 최소화하기 위해 로컬 맵에 데이터를 모두 채운 후 한 번에 스왑
     {
@@ -560,276 +503,6 @@ void Account::ShowHoldings()
 	log.Output(LogLevel::INFO, totalLine.str().c_str(), LogTarget::CONSOLE);
 }
 
-void Account::RefreshTradeHistory(const std::string& startDate, const std::string& endDate)
-{
-    Log& log = Log::GetInstance();
-
-    // 현재 계좌번호 확인
-    if (currentAccountNumber.empty())
-    {
-        log.Output(LogLevel::ERROR, "현재 사용 중인 계좌번호가 설정되지 않았습니다.");
-
-        return;
-    }
-
-    // 액세스 토큰 가져오기
-    std::string token = Login::GetAccessToken();
-
-    if (token.empty())
-    {
-        log.Output(LogLevel::ERROR, "접근 토큰이 비어있습니다. 거래 내역 조회를 중단합니다.");
-
-        return;
-    }
-
-    // API 엔드포인트 및 URL 설정
-    const std::string endpoint = "/api/dostk/acnt";
-    const std::string url = std::string(Config::hostURL) + endpoint;
-
-    std::string hasGetNextData = "N";
-    std::string nextKey = "";
-
-    const int maxPages = 100;
-
-    // 거래 내역을 임시로 저장할 로컬 벡터 생성
-    std::vector<TradeRecord> localTrades;
-
-    std::ostringstream startMsg;
-    startMsg << "거래 내역 조회를 시작합니다... (" << startDate << " ~ " << endDate << ")";
-    log.Output(LogLevel::INFO, startMsg.str().c_str());
-
-    for (int page = 0; page < maxPages; page++)
-    {
-        CURL* curl = curl_easy_init();
-
-        if (curl == nullptr)
-        {
-            log.Output(LogLevel::ERROR, "CURL 초기화 실패 (Account::FetchTradeHistory)");
-
-            break;
-        }
-
-        std::string readBuffer;
-        std::string headerBuffer;
-
-        struct curl_slist* headers = NULL;
-
-        std::string hdrContentType = "Content-Type: application/json;charset=UTF-8";
-        std::string hdrAuth = "authorization: Bearer " + token;
-        std::string hdrCont = "cont-yn: " + hasGetNextData;
-        std::string hdrNext = "next-key: " + nextKey;
-        std::string hdrApiId = "api-id: kt00015";
-
-        headers = curl_slist_append(headers, hdrContentType.c_str());
-        headers = curl_slist_append(headers, hdrAuth.c_str());
-        headers = curl_slist_append(headers, hdrCont.c_str());
-        headers = curl_slist_append(headers, hdrNext.c_str());
-        headers = curl_slist_append(headers, hdrApiId.c_str());
-
-        // Request body
-        json requestBody =
-        {
-            { "strt_dt", startDate },
-            { "end_dt", endDate },
-            { "tp", "0" },
-            { "stk_cd", "" },
-            { "crnc_cd", "" },
-            { "gds_tp", "0" },
-            { "frgn_stex_code", "" },
-            { "dmst_stex_tp", "%" }
-        };
-
-        std::string jsonStr = requestBody.dump();
-
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Login::WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
-        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerBuffer);
-
-        CURLcode response = curl_easy_perform(curl);
-
-        if (response != CURLE_OK)
-        {
-            std::string errorMessage = std::string("HTTP 요청 실패 : ") + curl_easy_strerror(response);
-            log.Output(LogLevel::ERROR, errorMessage.c_str());
-
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-
-            break;
-        }
-
-        long responseCode = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
-
-        if (responseCode != 200)
-        {
-            std::string errorMessage = "거래 내역 조회 비정상 응답 코드 수신 : " + std::to_string(responseCode);
-            log.Output(LogLevel::ERROR, errorMessage.c_str());
-
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-
-            return;
-        }
-
-        // 헤더 파싱
-        std::istringstream hstream(headerBuffer);
-        std::string line;
-        std::string hasThisNextData = "N";
-        std::string newNext = "";
-
-        while (std::getline(hstream, line))
-        {
-            JsonData data = Convert::GetJsonData(line);
-
-            if (data.key.empty())
-                continue;
-
-            std::string lowerKey = data.key;
-            std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(), ::tolower);
-
-            if (lowerKey == "cont-yn")
-                hasThisNextData = data.value;
-
-            else if (lowerKey == "next-key")
-                newNext = data.value;
-        }
-
-        // JSON 파싱
-        try
-        {
-            if (!readBuffer.empty())
-            {
-                json data = json::parse(readBuffer);
-
-                int returnCode = data.value("return_code", -1);
-                std::string returnMsg = data.value("return_msg", "");
-
-                if (returnCode != 0)
-                {
-                    std::ostringstream oss;
-                    oss << "거래 내역 조회 실패: [" << returnCode << "] " << returnMsg;
-                    log.Output(LogLevel::ERROR, oss.str().c_str());
-
-                    if (returnCode == 3)
-                        Login::ClearAccessToken();
-
-                    curl_slist_free_all(headers);
-                    curl_easy_cleanup(curl);
-                    return;
-                }
-
-                // trst_ovrl_trde_prps_array 배열 파싱
-                if (data.contains("trst_ovrl_trde_prps_array") && data["trst_ovrl_trde_prps_array"].is_array())
-                {
-                    for (auto& item : data["trst_ovrl_trde_prps_array"])
-                    {
-                        TradeRecord record;
-                        record.tradeDate = item.value("trde_dt", "");
-                        record.tradeNo = item.value("trde_no", "");
-                        record.stockCode = item.value("stk_cd", "");
-                        record.stockName = item.value("stk_nm", "");
-                        record.ioType = item.value("io_tp", "");
-                        record.ioTypeName = item.value("io_tp_nm", "");
-                        record.tradeQty = item.value("trde_qty_jwa_cnt", "");
-                        record.tradeAmt = item.value("trde_amt", "");
-                        record.exctAmt = item.value("exct_amt", "");
-                        record.commission = item.value("cmsn", "");
-                        record.taxFee = item.value("tax_sum_cmsn", "");
-                        record.tradeUnit = item.value("trde_unit", "");
-                        
-                        // procTime을 HH:MM:SS 형식으로 포맷팅
-                        {
-                            std::string rawProcTime = item.value("proc_tm", "");
-                            std::string digits;
-                            for (char c : rawProcTime) {
-                                if (std::isdigit(c)) {
-                                    digits += c;
-                                }
-                            }
-                            
-                            if (digits.length() > 0) {
-                                // 6자리 미만이면 앞에 0을 패딩
-                                if (digits.length() < 6) {
-                                    digits = std::string(6 - digits.length(), '0') + digits;
-                                }
-                                // HH:MM:SS 형식으로 변환
-                                record.procTime = digits.substr(0, 2) + ":" + digits.substr(2, 2) + ":" + digits.substr(4, 2);
-                            } else {
-                                record.procTime = rawProcTime;
-                            }
-                        }
-                        
-                        record.creditDealTypeName = item.value("crd_deal_tp_nm", "");
-                        record.remarkName = item.value("rmrk_nm", "");
-
-                        localTrades.push_back(record);
-
-                        std::ostringstream oss;
-
-                        oss << "거래 내역 : " << record.tradeDate << " "
-                            << record.stockCode << " (" << record.stockName << ") "
-                            << record.ioTypeName << " "
-                            << record.tradeQty << "주 "
-                            << record.tradeAmt << "원";
-
-                        log.Output(LogLevel::INFO, oss.str().c_str());
-                    }
-                }
-            }
-        }
-
-        catch (json::parse_error& e)
-        {
-            std::string err = std::string("JSON 파싱 오류: ") + e.what();
-            log.Output(LogLevel::ERROR, err.c_str());
-        }
-
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-
-        hasGetNextData = hasThisNextData;
-        nextKey = newNext;
-
-        if (hasGetNextData != "Y")
-            break;
-    }
-
-    // 락을 최소화하기 위해 로컬 벡터에 데이터를 모두 채운 후 한 번에 스왑
-    {
-        std::lock_guard<std::mutex> lock(tradeHistoryMutex);
-        tradeHistory.swap(localTrades);
-    }
-
-    std::ostringstream summary;
-    summary << "거래 내역 조회 완료. 총 " << tradeHistory.size() << "건";
-
-    log.Output(LogLevel::INFO, summary.str().c_str());
-}
-
-std::vector<TradeRecord> Account::GetTradeHistorySnapshot()
-{
-    std::lock_guard<std::mutex> lock(tradeHistoryMutex);
-    return tradeHistory;
-}
-
-size_t Account::HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata)
-{
-    size_t total = size * nitems;
-
-    if (userdata != nullptr)
-    {
-        std::string* headerBuf = static_cast<std::string*>(userdata);
-        headerBuf->append(buffer, total);
-    }
-
-    return total;
-}
-
 void Account::AppendHoldingsFromResponse(const json& data, std::map<std::string, Holding>& localHoldings)
 {
     if (!data.contains("acnt_evlt_remn_indv_tot") || !data["acnt_evlt_remn_indv_tot"].is_array())
@@ -865,57 +538,6 @@ void Account::AppendHoldingsFromResponse(const json& data, std::map<std::string,
             holding.profitRate = (dotPos != std::string::npos) ? std::stod(inputRate) : std::stod(rate);
         }
 
-        const long long apiLastEndCost = Convert::GetLongLongField(item,
-            {
-                "prev_close_pric", "prev_close_price", "pred_close_pric",
-                "pred_close_price", "bfdy_clos_pric", "yd_clpr", "pre_clos"
-            });
-
-        const long long dailyDiffAmount = Convert::GetLongLongField(item, { "pred_pre", "prdy_vrss", "today_vs_prev", "flu_amt", "updn_pric" });
-
-        if (apiLastEndCost > 0)
-            holding.lastEndPrice = apiLastEndCost;
-
-        else if (holding.price != 0 && dailyDiffAmount != 0)
-            holding.lastEndPrice = holding.price - dailyDiffAmount;
-
-        else
-        {
-            const Week weekday = DateTime::GetCurrentWeekday();
-
-            std::lock_guard<std::mutex> lock(cachedCloseMutex);
-
-            if (weekday == Week::Saturday || weekday == Week::Sunday)
-            {
-                std::map<std::string, long long>::iterator lastCostIndex = lastEndPriceByCode.find(holding.code);
-
-                if (lastCostIndex != lastEndPriceByCode.end())
-                    holding.lastEndPrice = lastCostIndex->second;
-            }
-
-            else
-            {
-                auto priceIter = lastKnownPriceByCode.find(holding.code);
-
-                if (priceIter != lastKnownPriceByCode.end())
-                    holding.lastEndPrice = priceIter->second;
-            }
-
-            if (holding.lastEndPrice < 0)
-                holding.lastEndPrice = 0;
-        }
-
-        // 전일 종가가 유효한 경우에만 하루 수익률 계산
-		holding.dailyProfitRate = UpdateDailyProfitRate(holding.price, holding.lastEndPrice);
-
-        {
-            std::lock_guard<std::mutex> lock(cachedCloseMutex);
-            lastKnownPriceByCode[holding.code] = holding.price;
-
-            if (holding.lastEndPrice > 0)
-                lastEndPriceByCode[holding.code] = holding.lastEndPrice;
-        }
-
         std::string key = holding.account + ":" + holding.code;
         localHoldings[key] = holding;
 
@@ -931,7 +553,75 @@ void Account::AppendHoldingsFromResponse(const json& data, std::map<std::string,
     }
 }
 
-double Account::UpdateDailyProfitRate(long long currentPrice, long long lastEndPrice)
+void Account::RefreshDailyProfitRates(std::map<std::string, Holding>& localHoldings)
+{
+    if (localHoldings.empty())
+        return;
+
+    std::set<std::string> stockCodes;
+
+    for (const auto& pair : localHoldings)
+    {
+        const Holding& holding = pair.second;
+
+        if (!holding.code.empty())
+            stockCodes.insert(holding.code);
+    }
+
+    std::map<std::string, long long> lastEndPriceFromDatabase = GetLastEndPriceFromDatabase(stockCodes);
+    const Week weekday = DateTime::GetCurrentWeekday();
+
+    std::lock_guard<std::mutex> lock(cachedCloseMutex);
+
+    for (std::pair<const std::string, Holding>& pair : localHoldings)
+    {
+        Holding& holding = pair.second;
+
+        auto lastEndPriceIndex = lastEndPriceFromDatabase.find(holding.code);
+
+		// 데이터베이스에서 직전 종가를 가져왔고, 0보다 큰 경우 해당 값을 사용
+        if (lastEndPriceIndex != lastEndPriceFromDatabase.end() && lastEndPriceIndex->second > 0)
+            holding.lastEndPrice = lastEndPriceIndex->second;
+
+        else
+        {
+			// 만약 데이터베이스에서 직전 종가를 가져오지 못했거나 0 이하인 경우, 요일에 따라 다른 전략으로 직전 종가 결정
+            if (weekday == Week::Saturday || weekday == Week::Sunday)
+            {
+                std::map<std::string, long long>::iterator lastCostIndex = lastEndPriceByCode.find(holding.code);
+
+                if (lastCostIndex != lastEndPriceByCode.end())
+                    holding.lastEndPrice = lastCostIndex->second;
+            }
+
+			// 그 외의 경우에는 최근에 알려진 가격을 사용
+            else
+            {
+                auto priceIter = lastKnownPriceByCode.find(holding.code);
+
+                if (priceIter != lastKnownPriceByCode.end())
+                    holding.lastEndPrice = priceIter->second;
+            }
+
+            if (holding.lastEndPrice < 0)
+                holding.lastEndPrice = 0;
+        }
+
+        if (holding.lastEndPrice <= 0)
+        {
+            holding.lastEndPrice = holding.price;
+            holding.dailyProfitRate = 0.0;
+        }
+
+        else
+            holding.dailyProfitRate = CalculateDailyProfitRate(holding.price, holding.lastEndPrice);
+
+        lastKnownPriceByCode[holding.code] = holding.price;
+        lastEndPriceByCode[holding.code] = holding.lastEndPrice;
+    }
+}
+
+double Account::CalculateDailyProfitRate(long long currentPrice, long long lastEndPrice)
 {
     if (lastEndPrice <= 0)
 		return 0.0;
@@ -982,6 +672,7 @@ std::map<std::string, long long> Account::GetLastEndPriceFromDatabase(const std:
         return result;
     }
 
+	// Spring Boot + MySQL에서 직전 거래일 종가를 조회하는 API 엔드포인트로 요청
     const std::string url = std::string(webServerUrl) + "/stream/holdings/prev-close?codes=" + encodedCodes;
     curl_free(encodedCodes);
 
@@ -989,16 +680,18 @@ std::map<std::string, long long> Account::GetLastEndPriceFromDatabase(const std:
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Login::WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Network::WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 2L);
 
     CURLcode response = curl_easy_perform(curl);
 
+	// 요청 실패 시 빈 맵 반환
     if (response != CURLE_OK)
     {
         curl_easy_cleanup(curl);
+
         return result;
     }
 
@@ -1006,6 +699,7 @@ std::map<std::string, long long> Account::GetLastEndPriceFromDatabase(const std:
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
     curl_easy_cleanup(curl);
 
+	// 응답이 200이 아니거나 응답 본문이 비어있으면 빈 맵 반환
     if (responseCode != 200 || readBuffer.empty())
         return result;
 
@@ -1018,6 +712,7 @@ std::map<std::string, long long> Account::GetLastEndPriceFromDatabase(const std:
 
         for (auto iter = data.begin(); iter != data.end(); ++iter)
         {
+			// 키는 종목 코드, 값은 직전 거래일 종가라고 가정하고 파싱
             const std::string& code = iter.key();
             const json& value = iter.value();
 

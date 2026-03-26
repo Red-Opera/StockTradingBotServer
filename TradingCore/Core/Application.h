@@ -1,8 +1,8 @@
 ﻿#pragma once
 
-#include "LiftCycle.h"
+#include "LifeCycle.h"
 
-class Application : public LiftCycle
+class Application : public LifeCycle
 {
 public:
 	static Application& GetInstance();

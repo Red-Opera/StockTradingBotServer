@@ -78,19 +78,23 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
+    <ClCompile Include="Core\Network.cpp" />
+    <ClCompile Include="Trade\TradeHistory.cpp" />
     <ClCompile Include="Utility\DateTime.cpp" />
     <ClCompile Include="InterServer\StreamingServer.cpp" />
     <ClCompile Include="Utility\String.cpp" />
     <ClCompile Include="Utility\Convert.cpp" />
     <ClCompile Include="Trade\Account.cpp" />
     <ClCompile Include="Core\Application.cpp" />
-    <ClCompile Include="Core\LiftCycle.cpp" />
+    <ClCompile Include="Core\LifeCycle.cpp" />
     <ClCompile Include="Core\Log.cpp" />
     <ClCompile Include="Utility\Directory.cpp" />
     <ClCompile Include="Login.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Core\Network.h" />
+    <ClInclude Include="Trade\TradeHistory.h" />
     <ClInclude Include="Utility\DateTime.h" />
     <ClInclude Include="InterServer\StreamingServer.h" />
     <ClInclude Include="Utility\String.h" />
@@ -100,7 +104,7 @@
     <ClInclude Include="Core\Config.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Core\LiftCycle.h" />
+    <ClInclude Include="Core\LifeCycle.h" />
     <ClInclude Include="Core\Log.h" />
     <ClInclude Include="Utility\Directory.h" />
     <ClInclude Include="Login.h" />
