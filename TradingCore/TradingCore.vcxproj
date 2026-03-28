@@ -60,11 +60,12 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <UseDebugLibraries>true</UseDebugLibraries>
     <RemoteRootDir>~/Trader</RemoteRootDir>
-    <RemoteCopyIncludeDirectories>/usr/include</RemoteCopyIncludeDirectories>
+    <RemoteCopyIncludeDirectories>/usr/include;/usr/include/x86_64-linux-gnu</RemoteCopyIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <UseDebugLibraries>false</UseDebugLibraries>
-    <RemoteCopyIncludeDirectories>/usr/include</RemoteCopyIncludeDirectories>
+    <RemoteCopyIncludeDirectories>/usr/include;/usr/include/x86_64-linux-gnu</RemoteCopyIncludeDirectories>
+    <RemoteRootDir>~/Trader</RemoteRootDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'" Label="Configuration">
     <UseDebugLibraries>false</UseDebugLibraries>

@@ -476,7 +476,7 @@ void Account::ShowHoldings()
     double totalValue = 0.0;
     double totalProfitLoss = 0.0;
 
-    for (const std::pair<std::string, Holding>& currentPair : currentHoldings)
+    for (const std::pair<std::string, Holding> currentPair : currentHoldings)
     {
         const Holding& holding = currentPair.second;
 

@@ -58,6 +58,7 @@ bool StreamingServer::Start(uint16_t port)
 
     // create socket
     listenSocket = (int)socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
     if (listenSocket < 0)
     {
         Log::GetInstance().Output(LogLevel::ERROR, "소켓 생성 실패 (StreamingServer::Start)");
@@ -69,7 +70,7 @@ bool StreamingServer::Start(uint16_t port)
     setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 
 	// 주소와 포트 바인딩
-    sockaddr_in addr;
+	sockaddr_in addr = { };
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(listenPort);
@@ -86,6 +87,7 @@ bool StreamingServer::Start(uint16_t port)
 #endif
 
         listenSocket = -1;
+
         return false;
     }
 
@@ -151,7 +153,7 @@ void StreamingServer::AcceptLoop()
 {
     while (running)
     {
-        sockaddr_in clientAddr;
+		sockaddr_in clientAddr = { };
         socklen_t clientLen = sizeof(clientAddr);
 
         // 클라이언트 연결 수락
@@ -182,8 +184,6 @@ void StreamingServer::AcceptLoop()
 
 void StreamingServer::ClientLoop(int clientSocket)
 {
-    Log& log = Log::GetInstance();
-
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
 #endif
@@ -235,8 +235,10 @@ void StreamingServer::ClientLoop(int clientSocket)
                 int err = errno;
                 std::ostringstream ess;
                 ess << "send 실패 (StreamingServer::ClientLoop), errno = " << err << ", msg = " << std::strerror(err);
+
                 Log::GetInstance().Output(LogLevel::INFO, ess.str().c_str());
                 close(clientSocket);
+
                 return;
             }
 #endif
@@ -284,10 +286,13 @@ void StreamingServer::ClientLoop(int clientSocket)
             if (sent <= 0)
             {
                 int err = errno;
+
                 std::ostringstream ess;
                 ess << "send 실패 (StreamingServer::ClientLoop - trade), errno = " << err << ", msg = " << std::strerror(err);
                 Log::GetInstance().Output(LogLevel::INFO, ess.str().c_str());
+
                 close(clientSocket);
+
                 return;
             }
 #endif
@@ -307,7 +312,6 @@ void StreamingServer::ClientLoop(int clientSocket)
 void StreamingServer::RefrashLoop()
 {
     Log& log = Log::GetInstance();
-
     log.Output(LogLevel::INFO, "보유 종목 폴링 시작");
 
     while (running)
@@ -344,7 +348,6 @@ void StreamingServer::RefrashLoop()
 void StreamingServer::TradeHistoryPollingLoop()
 {
     Log& log = Log::GetInstance();
-
     log.Output(LogLevel::INFO, "거래 내역 폴링 시작");
 
     while (running)
