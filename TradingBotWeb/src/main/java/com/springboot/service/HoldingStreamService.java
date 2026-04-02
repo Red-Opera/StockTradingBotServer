@@ -43,8 +43,10 @@ public class HoldingStreamService {
     private final List<SseEmitter> emitters = new ArrayList<>(); // 현재 연결된 모든 SseEmitter를 저장하는 리스트
     private final Map<String, Holding> latest = new ConcurrentHashMap<>(); // 종목 코드별 최신 Holding 정보를 저장하는 맵
     private final List<TradeRecord> latestTrades = new CopyOnWriteArrayList<>(); // 최신 거래 내역을 저장하는 리스트 (메모리 전용)
+    private final Map<String, Long> prevCloseByCode = new ConcurrentHashMap<>(); // 전일 종가 캐시
     private final ObjectMapper mapper = new ObjectMapper(); // JSON 문자열을 객체로 변환하기 위한 ObjectMapper
     private final ExecutorService executor = Executors.newSingleThreadExecutor(); // 소켓 연결과 데이터 수신을 처리할 단일 스레드
+    private volatile LocalDateTime prevCloseReferenceEndTime = null;
 
     private final PortfolioSnapshotRepository portfolioSnapshotRepository;
     private final HoldingSnapshotRepository holdingSnapshotRepository;
@@ -104,12 +106,16 @@ public class HoldingStreamService {
 
     // 종목코드 목록 기준 직전 거래일 종가(스냅샷 가격) 조회
     public Map<String, Long> GetPrevClosePriceMap(List<String> codes) {
+        LocalDateTime referenceEndTime = ResolvePrevCloseReferenceTime(LocalDateTime.now());
+
+        return GetPrevClosePriceMap(codes, referenceEndTime);
+    }
+
+    private Map<String, Long> GetPrevClosePriceMap(List<String> codes, LocalDateTime referenceEndTime) {
         Map<String, Long> result = new LinkedHashMap<>();
 
         if (codes == null || codes.isEmpty())
             return result;
-
-        LocalDateTime referenceEndTime = ResolvePrevCloseReferenceTime(LocalDateTime.now());
 
         List<HoldingSnapshotRepository.CodePriceProjection> rows =
                 holdingSnapshotRepository.findLatestPricesByCodesBefore(codes, referenceEndTime);
@@ -123,6 +129,57 @@ public class HoldingStreamService {
         }
 
         return result;
+    }
+
+    private void EnrichHoldingWithPrevClose(Holding holding) {
+        if (holding == null)
+            return;
+
+        String code = holding.getCode();
+
+        if (code == null || code.isBlank()) {
+            holding.setLastEndPrice(0L);
+            holding.setDailyProfitRate(0.0);
+            return;
+        }
+
+        LocalDateTime referenceEndTime = ResolvePrevCloseReferenceTime(LocalDateTime.now());
+
+        if (prevCloseReferenceEndTime == null || !prevCloseReferenceEndTime.equals(referenceEndTime)) {
+            synchronized (prevCloseByCode) {
+                if (prevCloseReferenceEndTime == null || !prevCloseReferenceEndTime.equals(referenceEndTime)) {
+                    prevCloseByCode.clear();
+                    prevCloseReferenceEndTime = referenceEndTime;
+                }
+            }
+        }
+
+        Long cachedPrevClose = prevCloseByCode.get(code);
+
+        if (cachedPrevClose == null) {
+            Map<String, Long> fetched = GetPrevClosePriceMap(List.of(code), referenceEndTime);
+            long normalized = 0L;
+
+            if (fetched.containsKey(code) && fetched.get(code) != null && fetched.get(code) > 0)
+                normalized = fetched.get(code);
+
+            if (normalized > 0)
+                prevCloseByCode.put(code, normalized);
+
+            cachedPrevClose = normalized;
+        }
+
+        long lastEndPrice = (cachedPrevClose != null && cachedPrevClose > 0) ? cachedPrevClose : 0L;
+
+        holding.setLastEndPrice(lastEndPrice);
+        holding.setDailyProfitRate(CalculateDailyProfitRate(holding.getPrice(), lastEndPrice));
+    }
+
+    private double CalculateDailyProfitRate(long currentPrice, long lastEndPrice) {
+        if (lastEndPrice <= 0)
+            return 0.0;
+
+        return ((double) (currentPrice - lastEndPrice) / (double) lastEndPrice) * 100.0;
     }
 
     private LocalDateTime ResolvePrevCloseReferenceTime(LocalDateTime now) {
@@ -256,6 +313,7 @@ public class HoldingStreamService {
                         } else {
                             // 기존 Holding 처리
                             Holding h = mapper.treeToValue(node, Holding.class);
+                            EnrichHoldingWithPrevClose(h);
                             latest.put(h.getCode(), h);
 
                             try {

@@ -5,7 +5,6 @@
 #include "Core/Log.h"
 #include "Core/Network.h"
 #include "Utility/Convert.h"
-#include "Utility/DateTime.h"
 #include "Utility/String.h"
 
 #include <curl/curl.h>
@@ -25,10 +24,6 @@ std::set<std::string> Account::accounts;
 std::string Account::currentAccountNumber;
 std::map<std::string, Holding> Account::holdings;
 std::mutex Account::holdingsMutex;
-
-std::mutex Account::cachedCloseMutex;
-std::map<std::string, long long> Account::lastKnownPriceByCode;
-std::map<std::string, long long> Account::lastEndPriceByCode;
 
 std::set<std::string>& Account::GetAllAccountNumbers()
 {
@@ -435,8 +430,6 @@ void Account::RefreshCurrentHoldings()
             break;
     }
 
-    RefreshDailyProfitRates(localHoldings);
-
 	// 락을 최소화하기 위해 로컬 맵에 데이터를 모두 채운 후 한 번에 스왑
     {
         std::lock_guard<std::mutex> lock(holdingsMutex);
@@ -553,197 +546,3 @@ void Account::AppendHoldingsFromResponse(const json& data, std::map<std::string,
     }
 }
 
-void Account::RefreshDailyProfitRates(std::map<std::string, Holding>& localHoldings)
-{
-    if (localHoldings.empty())
-        return;
-
-    std::set<std::string> stockCodes;
-
-    for (const auto& pair : localHoldings)
-    {
-        const Holding& holding = pair.second;
-
-        if (!holding.code.empty())
-            stockCodes.insert(holding.code);
-    }
-
-    std::map<std::string, long long> lastEndPriceFromDatabase = GetLastEndPriceFromDatabase(stockCodes);
-    const Week weekday = DateTime::GetCurrentWeekday();
-
-    std::lock_guard<std::mutex> lock(cachedCloseMutex);
-
-    for (std::pair<const std::string, Holding>& pair : localHoldings)
-    {
-        Holding& holding = pair.second;
-
-        auto lastEndPriceIndex = lastEndPriceFromDatabase.find(holding.code);
-
-		// 데이터베이스에서 직전 종가를 가져왔고, 0보다 큰 경우 해당 값을 사용
-        if (lastEndPriceIndex != lastEndPriceFromDatabase.end() && lastEndPriceIndex->second > 0)
-            holding.lastEndPrice = lastEndPriceIndex->second;
-
-        else
-        {
-			// 만약 데이터베이스에서 직전 종가를 가져오지 못했거나 0 이하인 경우, 요일에 따라 다른 전략으로 직전 종가 결정
-            if (weekday == Week::Saturday || weekday == Week::Sunday)
-            {
-                std::map<std::string, long long>::iterator lastCostIndex = lastEndPriceByCode.find(holding.code);
-
-                if (lastCostIndex != lastEndPriceByCode.end())
-                    holding.lastEndPrice = lastCostIndex->second;
-            }
-
-			// 그 외의 경우에는 최근에 알려진 가격을 사용
-            else
-            {
-                auto priceIter = lastKnownPriceByCode.find(holding.code);
-
-                if (priceIter != lastKnownPriceByCode.end())
-                    holding.lastEndPrice = priceIter->second;
-            }
-
-            if (holding.lastEndPrice < 0)
-                holding.lastEndPrice = 0;
-        }
-
-        if (holding.lastEndPrice <= 0)
-        {
-            holding.lastEndPrice = holding.price;
-            holding.dailyProfitRate = 0.0;
-        }
-
-        else
-            holding.dailyProfitRate = CalculateDailyProfitRate(holding.price, holding.lastEndPrice);
-
-        lastKnownPriceByCode[holding.code] = holding.price;
-        lastEndPriceByCode[holding.code] = holding.lastEndPrice;
-    }
-}
-
-double Account::CalculateDailyProfitRate(long long currentPrice, long long lastEndPrice)
-{
-    if (lastEndPrice <= 0)
-		return 0.0;
-
-	double priceDifference = static_cast<double>(currentPrice - lastEndPrice);
-
-    return priceDifference / static_cast<double>(lastEndPrice) * 100.0;
-}
-
-std::map<std::string, long long> Account::GetLastEndPriceFromDatabase(const std::set<std::string>& codes)
-{
-    std::map<std::string, long long> result;
-
-    if (codes.empty())
-        return result;
-
-    CURL* curl = curl_easy_init();
-
-    if (curl == nullptr)
-        return result;
-
-    std::ostringstream csv;
-    bool first = true;
-
-    for (const auto& code : codes)
-    {
-        if (code.empty())
-            continue;
-
-        if (!first)
-            csv << ",";
-
-        csv << code;
-        first = false;
-    }
-
-    if (first)
-    {
-        curl_easy_cleanup(curl);
-        return result;
-    }
-
-    char* encodedCodes = curl_easy_escape(curl, csv.str().c_str(), 0);
-
-    if (encodedCodes == nullptr)
-    {
-        curl_easy_cleanup(curl);
-        return result;
-    }
-
-	// Spring Boot + MySQL에서 직전 거래일 종가를 조회하는 API 엔드포인트로 요청
-    const std::string url = std::string(webServerUrl) + "/stream/holdings/prev-close?codes=" + encodedCodes;
-    curl_free(encodedCodes);
-
-    std::string readBuffer;
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Network::WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 2L);
-
-    CURLcode response = curl_easy_perform(curl);
-
-	// 요청 실패 시 빈 맵 반환
-    if (response != CURLE_OK)
-    {
-        curl_easy_cleanup(curl);
-
-        return result;
-    }
-
-    long responseCode = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
-    curl_easy_cleanup(curl);
-
-	// 응답이 200이 아니거나 응답 본문이 비어있으면 빈 맵 반환
-    if (responseCode != 200 || readBuffer.empty())
-        return result;
-
-    try
-    {
-        json data = json::parse(readBuffer);
-
-        if (!data.is_object())
-            return result;
-
-        for (auto iter = data.begin(); iter != data.end(); ++iter)
-        {
-			// 키는 종목 코드, 값은 직전 거래일 종가라고 가정하고 파싱
-            const std::string& code = iter.key();
-            const json& value = iter.value();
-
-            if (code.empty() || value.is_null())
-                continue;
-
-            long long prevClose = 0;
-
-            if (value.is_number_integer())
-                prevClose = value.get<long long>();
-
-            else if (value.is_number_float())
-                prevClose = static_cast<long long>(value.get<double>());
-
-            else if (value.is_string())
-            {
-                std::string digits = String::GetSignDigit(value.get<std::string>());
-
-                if (!digits.empty())
-                    prevClose = std::stoll(digits);
-            }
-
-            if (prevClose > 0)
-                result[code] = prevClose;
-        }
-    }
-
-    catch (...)
-    {
-        return std::map<std::string, long long>();
-    }
-
-    return result;
-}
